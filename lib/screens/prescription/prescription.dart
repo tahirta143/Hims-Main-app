@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../custum widgets/drawer/base_scaffold.dart';
@@ -458,23 +459,34 @@ class _VitalsSummaryBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<PrescriptionProvider>();
+    final v = vitals;
+
+    // Matches React's vitals grid exactly:
+    // weight, height, bmi, bmr, bsr, bp, pulse, spo2, temp, pain, waist, hip, whr, blood_group, remarks
     final items = [
-      {'label': 'Weight', 'key': 'weight', 'unit': 'kg'},
-      {'label': 'Height', 'key': 'height', 'unit': 'in'},
-      {'label': 'BMI', 'key': 'bmi', 'unit': '', 'readOnly': true},
-      {'label': 'B.P.', 'key': 'bp', 'unit': 'mmHg'},
-      {'label': 'Pulse', 'key': 'pulse', 'unit': 'bpm'},
-      {'label': 'SpO2', 'key': 'spo2', 'unit': '%'},
-      {'label': 'Temp', 'key': 'temp', 'unit': '°F'},
-      {'label': 'Pain', 'key': 'pain_scale', 'unit': '/10'},
+      _VitalItem(label: 'Weight',  key: 'weight',     unit: 'kg',    editable: true),
+      _VitalItem(label: 'Height',  key: 'height',     unit: v?.heightUnit ?? 'in', editable: true),
+      _VitalItem(label: 'BMI',     key: 'bmi',        unit: '',      editable: false, value: v?.bmi?.toString()),
+      _VitalItem(label: 'BMR',     key: 'bmr',        unit: 'kcal',  editable: false, value: v?.bmr?.toString()),
+      _VitalItem(label: 'BSR',     key: 'bsr',        unit: v?.bsrType == 'fasting' ? 'F' : 'R', editable: false, value: v?.bsr?.toString()),
+      _VitalItem(label: 'B.P.',    key: 'bp',         unit: '',      editable: true,  placeholder: '120/80'),
+      _VitalItem(label: 'Pulse',   key: 'pulse',      unit: 'bpm',   editable: true),
+      _VitalItem(label: 'SpO2',    key: 'spo2',       unit: '%',     editable: true),
+      _VitalItem(label: 'Temp',    key: 'temp',       unit: '°F',    editable: true),
+      _VitalItem(label: 'Pain',    key: 'pain_scale', unit: '/10',   editable: true),
+      _VitalItem(label: 'Waist',   key: 'waist',      unit: 'cm',    editable: false, value: v?.waist?.toString()),
+      _VitalItem(label: 'Hip',     key: 'hip',        unit: 'cm',    editable: false, value: v?.hip?.toString()),
+      _VitalItem(label: 'WHR',     key: 'whr',        unit: '',      editable: false, value: v?.whr?.toString()),
+      _VitalItem(label: 'Blood',   key: 'blood',      unit: '',      editable: true),
+      _VitalItem(label: 'Remarks', key: 'remarks',    unit: '',      editable: false, value: v?.remarks, wide: true),
     ];
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC), // slate-50
+        color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFDBEAFE)), // blue-100
+        border: Border.all(color: const Color(0xFFDBEAFE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -484,7 +496,7 @@ class _VitalsSummaryBox extends StatelessWidget {
             children: [
               const Row(
                 children: [
-                  Icon(Icons.monitor_heart_outlined, size: 14, color: Color(0xFF3B82F6)), // blue-500
+                  Icon(Icons.monitor_heart_outlined, size: 14, color: Color(0xFF3B82F6)),
                   SizedBox(width: 6),
                   Text('VITALS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A), letterSpacing: 0.5)),
                 ],
@@ -493,9 +505,9 @@ class _VitalsSummaryBox extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3C7), // amber-100
+                    color: const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: const Color(0xFFFDE68A)), // amber-200
+                    border: Border.all(color: const Color(0xFFFDE68A)),
                   ),
                   child: const Text('No vitals recorded', style: TextStyle(fontSize: 8, color: Color(0xFFB45309), fontStyle: FontStyle.italic)),
                 ),
@@ -508,78 +520,124 @@ class _VitalsSummaryBox extends StatelessWidget {
             final crossCount = isT ? 8 : 4;
             final aspectRatio = isT ? 1.6 : (sw < 380 ? 1.2 : 1.5);
 
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: crossCount,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: aspectRatio,
-              ),
-              itemCount: items.length,
-              itemBuilder: (context, i) {
-                final it = items[i];
-                final key = it['key'] as String;
-                final label = it['label'] as String;
-                final unit = it['unit'] as String;
-                final isReadOnly = it['readOnly'] == true;
+            // Build a Wrap instead of GridView so "wide" items can span differently
+            // Use a simple grid-like Wrap approach
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: items.map((item) {
+                final cellW = (lbc.maxWidth - (crossCount - 1) * 8) / crossCount;
+                final w = item.wide ? (cellW * 2 + 8) : cellW;  // wide = double width
 
-                return Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFFF1F5F9)), // slate-100
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(label.toUpperCase(), style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))), // slate-400
-                      const SizedBox(height: 2),
-                      isReadOnly
-                          ? Text(
-                              provider.currentVitals?.bmi?.toString() ?? '—',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
-                            )
-                          : Row(
-                              crossAxisAlignment: CrossAxisAlignment.baseline,
-                              textBaseline: TextBaseline.alphabetic,
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: provider.vitalControllers[key],
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
-                                    decoration: const InputDecoration(
-                                      isDense: true,
-                                      contentPadding: EdgeInsets.zero,
-                                      border: InputBorder.none,
-                                      hintText: '—',
-                                      hintStyle: TextStyle(color: Color(0xFFCBD5E1)),
-                                    ),
-                                  ),
-                                ),
-                                if (unit != '') ...[
-                                  const SizedBox(width: 2),
-                                  Text(unit, style: const TextStyle(fontSize: 8, color: Color(0xFF64748B))),
-                                ],
-                              ],
-                            ),
-                    ],
+                return SizedBox(
+                  width: w,
+                  height: isT ? (cellW / 1.6) : (cellW / (sw < 380 ? 1.2 : 1.5)),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFF1F5F9)),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(item.label.toUpperCase(),
+                            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        item.editable
+                            ? _editableCell(provider, item)
+                            : _readOnlyCell(item),
+                      ],
+                    ),
                   ),
                 );
-              },
+              }).toList(),
             );
           }),
         ],
       ),
     );
   }
+
+  Widget _editableCell(PrescriptionProvider provider, _VitalItem item) {
+    final ctrl = provider.vitalControllers[item.key];
+    if (ctrl == null) return _readOnlyCell(item);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Expanded(
+          child: TextField(
+            controller: ctrl,
+            keyboardType: item.key == 'bp' ? TextInputType.text : TextInputType.number,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+              border: InputBorder.none,
+              hintText: item.placeholder ?? '—',
+              hintStyle: const TextStyle(color: Color(0xFFCBD5E1)),
+            ),
+          ),
+        ),
+        if (item.unit.isNotEmpty) ...[
+          const SizedBox(width: 2),
+          Text(item.unit, style: const TextStyle(fontSize: 8, color: Color(0xFF64748B))),
+        ],
+      ],
+    );
+  }
+
+  Widget _readOnlyCell(_VitalItem item) {
+    final val = item.value;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Flexible(
+          child: Text(
+            val?.isNotEmpty == true ? val! : '—',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: val?.isNotEmpty == true ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+            ),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
+        ),
+        if (item.unit.isNotEmpty && val?.isNotEmpty == true) ...[
+          const SizedBox(width: 2),
+          Text(item.unit, style: const TextStyle(fontSize: 8, color: Color(0xFF64748B))),
+        ],
+      ],
+    );
+  }
+}
+
+class _VitalItem {
+  final String label;
+  final String key;
+  final String unit;
+  final bool editable;
+  final String? value;
+  final String? placeholder;
+  final bool wide;
+  const _VitalItem({
+    required this.label,
+    required this.key,
+    required this.unit,
+    required this.editable,
+    this.value,
+    this.placeholder,
+    this.wide = false,
+  });
 }
 
 // ─── Field Row (2 columns) ────────────────────────────────────────────────────
@@ -1345,7 +1403,7 @@ class _InstructionsTab extends StatelessWidget {
   }
 }
 
-// ─── Old Visits Tab — TREE VIEW (matches React) ──────────────────────────────
+// ─── Old Visits Tab — TABLE (matches React) ──────────────────────────────────
 class _OldVisitsTab extends StatefulWidget {
   final bool isTablet;
   final PrescriptionProvider provider;
@@ -1356,10 +1414,11 @@ class _OldVisitsTab extends StatefulWidget {
 }
 
 class _OldVisitsTabState extends State<_OldVisitsTab> {
-  final Map<String, bool> _expanded = {};
+  // index of the currently expanded row (-1 = none)
+  int? _expandedRow;
 
-  void _toggle(String key) => setState(() => _expanded[key] = !(_expanded[key] ?? false));
-  bool _isExpanded(String key) => _expanded[key] ?? false;
+  void _toggleRow(int i) =>
+      setState(() => _expandedRow = (_expandedRow == i) ? null : i);
 
   String _fmtDate(String? raw) {
     if (raw == null) return '';
@@ -1379,295 +1438,517 @@ class _OldVisitsTabState extends State<_OldVisitsTab> {
     if (provider.isLoadingHistory) {
       return const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(color: kTeal)));
     }
-    if (provider.prescriptionHistory.isEmpty) {
-      return const _PlaceholderTab(label: 'No previous visits found for this patient');
-    }
 
     final visits = provider.prescriptionHistory;
+    final patientName = provider.currentPatient?.fullName ?? provider.currentPatient?.mrNumber ?? 'Patient';
 
     return Padding(
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('${visits.length} visit(s) found — tap a category to expand',
-            style: TextStyle(fontSize: 10, color: kTextMid, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+          // ─── Header row ───────────────────────────────────────────────────
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${visits.length} visit(s) found',
+                  style: const TextStyle(fontSize: 10, color: kTextMid, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+                ),
+              ),
+              if (visits.isNotEmpty)
+                TextButton.icon(
+                  onPressed: provider.analyzingVisits
+                      ? null
+                      : () async {
+                          final ok = await provider.summarizeVisitsWithAI(patientName);
+                          if (!ok && context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Could not analyze visits'), backgroundColor: Colors.red),
+                            );
+                          }
+                        },
+                  icon: provider.analyzingVisits
+                      ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: kTeal))
+                      : const Icon(Icons.auto_awesome, size: 13, color: kTeal),
+                  label: Text(
+                    provider.analyzingVisits ? 'Analyzing...' : 'Analyze with AI',
+                    style: const TextStyle(fontSize: 11, color: kTeal, fontWeight: FontWeight.w600),
+                  ),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    backgroundColor: kTealLight,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: const BorderSide(color: kBorder)),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 8),
 
-          // ─── NOTES ───
-          _buildCategory(
-            key: 'notes',
-            title: 'Notes',
-            icon: Icons.description_outlined,
-            color: const Color(0xFF2563EB),
-            entries: visits.where((v) =>
-              (v.historyExamination ?? '').toString().isNotEmpty ||
-              (v.treatment ?? '').toString().isNotEmpty ||
-              (v.consultantNotes ?? '').toString().isNotEmpty ||
-              (v.remarks ?? '').toString().isNotEmpty
-            ).toList(),
-            contentBuilder: (v) => Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if ((v.historyExamination ?? '').toString().isNotEmpty)
-                  _labelValue('History', v.historyExamination),
-                if ((v.treatment ?? '').toString().isNotEmpty)
-                  _labelValue('Treatment', v.treatment),
-                if ((v.consultantNotes ?? '').toString().isNotEmpty)
-                  _labelValue('Notes', v.consultantNotes),
-                if ((v.remarks ?? '').toString().isNotEmpty)
-                  _labelValue('Remarks', v.remarks),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
-
-          // ─── DIAGNOSIS ───
-          _buildCategory(
-            key: 'diagnosis',
-            title: 'Diagnosis',
-            icon: Icons.assignment_outlined,
-            color: const Color(0xFF9333EA),
-            entries: visits.where((v) {
-              final ans = v.diagnosis;
-              return ans.isNotEmpty;
-            }).toList(),
-            contentBuilder: (v) {
-              final answers = v.diagnosis;
-              return Column(
+          // ─── AI Summary ───────────────────────────────────────────────────
+          if (provider.visitAnalysis != null && (provider.visitAnalysis ?? '').isNotEmpty) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFBBF7D0)),
+              ),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: answers.map<Widget>((ans) {
-                  final qText = ans.questionText.isNotEmpty ? ans.questionText : 'Q#${ans.questionId}';
-                  final aText = (ans.answerDisplay ?? ans.answerText ?? (ans.answerOptions != null ? ans.answerOptions!.join(', ') : '—')).toString();
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: RichText(text: TextSpan(
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF374151), fontFamily: 'Roboto'),
-                      children: [
-                        TextSpan(text: '$qText: ', style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF6B7280))),
-                        TextSpan(text: aText),
-                      ],
-                    )),
-                  );
-                }).toList(),
-              );
-            },
-          ),
-          const SizedBox(height: 4),
-
-          // ─── INVESTIGATION ───
-          _buildCategory(
-            key: 'investigation',
-            title: 'Investigation',
-            icon: Icons.science_outlined,
-            color: const Color(0xFF059669),
-            entries: visits.where((v) {
-              final inv = v.investigations;
-              return inv.isNotEmpty;
-            }).toList(),
-            contentBuilder: (v) {
-              final invs = v.investigations;
-              return Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: invs.map<Widget>((inv) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFECFDF5),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: const Color(0xFFA7F3D0)),
-                  ),
-                  child: Text.rich(TextSpan(children: [
-                    TextSpan(text: inv.testName, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFF065F46))),
-                    TextSpan(text: ' (${inv.investigationType})', style: const TextStyle(fontSize: 9, color: Color(0xFF6EE7B7))),
-                  ])),
-                )).toList(),
-              );
-            },
-          ),
-          const SizedBox(height: 4),
-
-          // ─── MEDICINES ───
-          _buildCategory(
-            key: 'medicines',
-            title: 'Medicines',
-            icon: Icons.medication_outlined,
-            color: const Color(0xFFD97706),
-            entries: visits.where((v) {
-              final meds = v.medicines;
-              return meds.isNotEmpty;
-            }).toList(),
-            contentBuilder: (v) {
-              final meds = v.medicines;
-              return Table(
-                columnWidths: const {
-                  0: FixedColumnWidth(24),
-                  1: FlexColumnWidth(3),
-                  2: FixedColumnWidth(28),
-                  3: FixedColumnWidth(28),
-                  4: FixedColumnWidth(28),
-                  5: FixedColumnWidth(28),
-                  6: FixedColumnWidth(36),
-                },
-                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
                 children: [
-                  TableRow(
-                    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
-                    children: const ['#', 'Medicine', 'M', 'A', 'E', 'N', 'Days']
-                      .map((h) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Text(h, textAlign: h == 'Medicine' || h == '#' ? TextAlign.left : TextAlign.center,
-                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
-                      )).toList(),
+                  const Row(
+                    children: [
+                      Icon(Icons.auto_awesome, size: 13, color: Color(0xFF166534)),
+                      SizedBox(width: 6),
+                      Text(
+                        'AI VISIT SUMMARY',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF166534), letterSpacing: 0.5),
+                      ),
+                    ],
                   ),
-                  ...meds.asMap().entries.map((e) {
-                    final m = e.value;
-                    final idx = e.key;
-                    return TableRow(
-                      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade50))),
-                      children: [
-                        Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('${idx+1}', style: TextStyle(fontSize: 10, color: Colors.grey.shade400))),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text.rich(TextSpan(children: [
-                            TextSpan(text: m.medicineName, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF1F2937))),
-                            if (m.isFormula) const TextSpan(text: ' (F)', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
-                          ])),
-                        ),
-                        _medCell(m.morning > 0 ? '${m.morning}' : '-'),
-                        _medCell(m.afternoon > 0 ? '${m.afternoon}' : '-'),
-                        _medCell(m.evening > 0 ? '${m.evening}' : '-'),
-                        _medCell(m.night > 0 ? '${m.night}' : '-'),
-                        _medCell(m.forDays.isNotEmpty ? m.forDays : '-'),
-                      ],
-                    );
-                  }),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 4),
-
-          // ─── INSTRUCTIONS ───
-          _buildCategory(
-            key: 'instructions',
-            title: 'Instructions',
-            icon: Icons.checklist_outlined,
-            color: const Color(0xFFE11D48),
-            entries: visits.where((v) {
-              final inst = v.instructions;
-              return inst.isNotEmpty;
-            }).toList(),
-            contentBuilder: (v) {
-              final arr = v.instructions;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: arr.map<Widget>((inst) => Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Text('• $inst', 
-                    textAlign: _isUrdu(inst) ? TextAlign.right : TextAlign.left,
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF374151))),
-                )).toList(),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _medCell(String val) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 2),
-    child: Text(val, textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-  );
-
-  Widget _labelValue(String label, dynamic value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: RichText(text: TextSpan(
-        style: const TextStyle(fontSize: 11, color: Color(0xFF374151), fontFamily: 'Roboto'),
-        children: [
-          TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF6B7280))),
-          TextSpan(text: '$value'),
-        ],
-      )),
-    );
-  }
-
-  Widget _buildCategory({
-    required String key,
-    required String title,
-    required IconData icon,
-    required Color color,
-    required List<dynamic> entries,
-    required Widget Function(dynamic v) contentBuilder,
-  }) {
-    final isOpen = _isExpanded(key);
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          InkWell(
-            onTap: () => _toggle(key),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  Icon(isOpen ? Icons.keyboard_arrow_down : Icons.chevron_right, size: 16, color: color),
-                  const SizedBox(width: 6),
-                  Icon(icon, size: 14, color: color),
-                  const SizedBox(width: 6),
-                  Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
-                  const Spacer(),
-                  Text('${entries.length} entries', style: TextStyle(fontSize: 10, color: color.withOpacity(0.6))),
+                  const SizedBox(height: 6),
+                  Text(
+                    provider.visitAnalysis ?? '',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF374151), height: 1.5),
+                  ),
                 ],
               ),
             ),
-          ),
-          if (isOpen) ...[
-            const Divider(height: 1, color: Color(0xFFF3F4F6)),
-            if (entries.isEmpty)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text('No $title in any visit', style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF), fontStyle: FontStyle.italic)),
-              )
-            else
-              ...entries.map((v) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFF3F4F6)))),
+            const SizedBox(height: 10),
+          ],
+
+          if (visits.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 32),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.calendar_today, size: 10, color: color.withOpacity(0.7)),
-                        const SizedBox(width: 4),
-                        Text(_fmtDate(v.createdAt), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1F2937))),
-                        const SizedBox(width: 6),
-                        Text('—', style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
-                        const SizedBox(width: 6),
-                        Text(v.doctorName.isNotEmpty ? 'Dr. ${v.doctorName}' : '', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 20),
-                      child: contentBuilder(v),
-                    ),
+                    Icon(Icons.history_outlined, size: 36, color: kTextMid.withOpacity(0.3)),
+                    const SizedBox(height: 8),
+                    Text('No visit history found', style: TextStyle(fontSize: 12, color: kTextMid.withOpacity(0.6))),
                   ],
                 ),
-              )),
-          ],
+              ),
+            )
+          else
+            _VisitsTable(
+              visits: visits,
+              expandedRow: _expandedRow,
+              onToggleRow: _toggleRow,
+              fmtDate: _fmtDate,
+              isUrdu: _isUrdu,
+            ),
         ],
       ),
     );
   }
 }
 
+// ─── Visits Table ─────────────────────────────────────────────────────────────
+class _VisitsTable extends StatelessWidget {
+  final List<PrescriptionModel> visits;
+  final int? expandedRow;
+  final void Function(int) onToggleRow;
+  final String Function(String?) fmtDate;
+  final bool Function(String) isUrdu;
+  const _VisitsTable({
+    required this.visits, required this.expandedRow,
+    required this.onToggleRow, required this.fmtDate, required this.isUrdu,
+  });
+
+  // Fixed column widths (px) — determines the total scroll width
+  // Row content width = sum of these. Outer border adds 2px, handled by overflow clip.
+  static const _colWidths = [28.0, 90.0, 90.0, 90.0, 140.0, 140.0, 110.0, 160.0];
+  static const _headers   = ['',   'Date','Doctor','Vitals','Notes / Dx','Investigations','Lab Values','Medicines'];
+
+  @override
+  Widget build(BuildContext context) {
+    final totalW = _colWidths.fold(0.0, (a, b) => a + b);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SizedBox(
+        width: totalW,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header row — no border needed, sits inside the outer border
+                Container(
+                  color: const Color(0xFF374151),
+                  child: Row(
+                    children: List.generate(_headers.length, (i) => SizedBox(
+                      width: _colWidths[i],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+                        child: Text(_headers[i],
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700,
+                                color: Colors.white, letterSpacing: 0.3)),
+                      ),
+                    )),
+                  ),
+                ),
+                // Data rows — no extra border, outer DecoratedBox handles it
+                ...visits.asMap().entries.map((e) => _VisitRow(
+                  visit: e.value, index: e.key,
+                  colWidths: _colWidths,
+                  isEven: e.key % 2 == 0,
+                  isOpen: expandedRow == e.key,
+                  onTap: () => onToggleRow(e.key),
+                  fmtDate: fmtDate, isUrdu: isUrdu,
+                )),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Visit Row ────────────────────────────────────────────────────────────────
+class _VisitRow extends StatelessWidget {
+  final PrescriptionModel visit;
+  final int index;
+  final List<double> colWidths;
+  final bool isEven, isOpen;
+  final VoidCallback onTap;
+  final String Function(String?) fmtDate;
+  final bool Function(String) isUrdu;
+  const _VisitRow({
+    required this.visit, required this.index, required this.colWidths,
+    required this.isEven, required this.isOpen, required this.onTap,
+    required this.fmtDate, required this.isUrdu,
+  });
+
+  Color get _bg => isOpen ? const Color(0xFFDEEBFF)  // Light blue when expanded
+      : (isEven ? Colors.white : const Color(0xFFF9FAFB));
+  String _dose(double v) => v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
+  Widget _grey(String t) => Text(t, style: TextStyle(fontSize: 10, color: Colors.grey.shade400));
+  Widget _col(int idx, Widget child) => SizedBox(
+    width: colWidths[idx],
+    child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8), child: child),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      InkWell(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          color: _bg,
+          child: Row(children: [
+            // Col 0: Chevron
+            _col(0, Center(child: AnimatedRotation(
+              duration: const Duration(milliseconds: 200),
+              turns: isOpen ? 0.25 : 0,
+              child: const Icon(Icons.chevron_right, size: 16, color: Color(0xFF6B7280)),
+            ))),
+            _col(1, _dateCell()), 
+            _col(2, _doctorCell()), 
+            _col(3, _vitalsCell()),
+            _col(4, _notesDxCell()), 
+            _col(5, _investigationsCell()),
+            _col(6, _labCell()), 
+            _col(7, _medsCell()),
+          ]),
+        ),
+      ),
+      if (isOpen) Container(
+        color: const Color(0xFFF0F9FF),
+        padding: const EdgeInsets.all(14), 
+        child: _detailPanel()
+      ),
+      if (!isOpen) Divider(height: 1, color: Colors.grey.shade200),
+    ]);
+  }
+
+  Widget _dateCell() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(fmtDate(visit.createdAt),
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1F2937))),
+    if ((visit.receiptId ?? '').isNotEmpty)
+      Text('#${visit.receiptId}', style: const TextStyle(fontSize: 9, color: kTextMid)),
+  ]);
+
+  Widget _doctorCell() => Text(
+    visit.doctorName.isNotEmpty ? visit.doctorName : '—',
+    style: const TextStyle(fontSize: 11, color: Color(0xFF374151)),
+    overflow: TextOverflow.ellipsis, maxLines: 2,
+  );
+
+  Widget _vitalsCell() {
+    final v = visit.vitals;
+    final bp = (v['systolic'] != null && v['diastolic'] != null)
+        ? '${v['systolic']}/${v['diastolic']}' : (v['bp'] ?? '');
+    final pairs = <String, String>{
+      'BP': bp, 'Pulse': v['pulse'] ?? '',
+      'Temp': v['temp'] ?? v['temperature'] ?? '',
+      'Wt': v['weight'] ?? '', 'SpO2': v['spo2'] ?? '',
+    }..removeWhere((_, val) => val.isEmpty);
+    if (pairs.isEmpty) return _grey('—');
+    return Column(crossAxisAlignment: CrossAxisAlignment.start,
+      children: pairs.entries.map((e) =>
+          Text('${e.key}: ${e.value}',
+              style: const TextStyle(fontSize: 10, color: Color(0xFF374151)))).toList());
+  }
+
+  Widget _notesDxCell() {
+    final parts = <Widget>[];
+    void chip(String lbl, String? txt, Color c) {
+      if ((txt ?? '').isEmpty) return;
+      parts.add(Padding(padding: const EdgeInsets.only(bottom: 2),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(margin: const EdgeInsets.only(top: 1, right: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(color: c.withOpacity(0.12), borderRadius: BorderRadius.circular(3)),
+            child: Text(lbl, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: c))),
+          Expanded(child: Text(txt!, style: const TextStyle(fontSize: 10, color: Color(0xFF374151)),
+              maxLines: 2, overflow: TextOverflow.ellipsis)),
+        ])));
+    }
+    chip('Hx', visit.historyExamination, const Color(0xFF2563EB));
+    chip('Tx', visit.treatment, const Color(0xFF059669));
+    chip('Notes', visit.consultantNotes, const Color(0xFF7C3AED));
+    chip('Rmk', visit.remarks, const Color(0xFFD97706));
+    for (final dx in visit.diagnosis) {
+      final a = (dx.answerDisplay ?? dx.answerText ?? '').toString();
+      if (a.isEmpty) continue;
+      final q = dx.questionText.isNotEmpty ? dx.questionText : 'Q#${dx.questionId}';
+      parts.add(Text.rich(TextSpan(style: const TextStyle(fontSize: 10), children: [
+        TextSpan(text: '$q: ', style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF6B7280))),
+        TextSpan(text: a, style: const TextStyle(color: Color(0xFF374151))),
+      ]), maxLines: 1, overflow: TextOverflow.ellipsis));
+    }
+    if (parts.isEmpty) return _grey('—');
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: parts);
+  }
+
+  Widget _investigationsCell() {
+    if (visit.investigations.isEmpty) return _grey('—');
+    return Wrap(spacing: 4, runSpacing: 3,
+      children: visit.investigations.map((inv) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(color: const Color(0xFFECFDF5),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFFA7F3D0))),
+        child: Text(inv.testName,
+            style: const TextStyle(fontSize: 9, color: Color(0xFF065F46), fontWeight: FontWeight.w500)),
+      )).toList());
+  }
+
+  Widget _labCell() {
+    // Extract lab value rows like React's labValueRows(visit)
+    final labValueRows = <Map<String, String>>[];
+    final entries = visit.labValues?['entries'] as Map<String, dynamic>?;
+    if (entries != null) {
+      entries.forEach((parameter, byDate) {
+        if (byDate is Map) {
+          (byDate as Map<String, dynamic>).forEach((date, value) {
+            if (value != null && value.toString().trim().isNotEmpty) {
+              labValueRows.add({
+                'parameter': parameter,
+                'date': date,
+                'value': value.toString(),
+              });
+            }
+          });
+        }
+      });
+    }
+    
+    // Sort by date descending (newest first)
+    labValueRows.sort((a, b) {
+      try {
+        final dateA = DateTime.parse(a['date'] ?? '');
+        final dateB = DateTime.parse(b['date'] ?? '');
+        return dateB.compareTo(dateA);
+      } catch (_) {
+        return 0;
+      }
+    });
+
+    if (labValueRows.isEmpty) return _grey('—');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: labValueRows.take(3).map((row) {
+        final param = row['parameter'] ?? '';
+        final val = row['value'] ?? '';
+        final dateRaw = row['date'] ?? '';
+        String formattedDate = '';
+        try {
+          final d = DateTime.parse(dateRaw);
+          formattedDate = '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}';
+        } catch (_) {
+          formattedDate = dateRaw;
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 1),
+          child: Text.rich(
+            TextSpan(style: const TextStyle(fontSize: 9), children: [
+              TextSpan(text: '$param: ', style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF6B7280))),
+              TextSpan(text: val, style: const TextStyle(color: Color(0xFF1F2937), fontWeight: FontWeight.w600)),
+              if (formattedDate.isNotEmpty) TextSpan(text: ' ($formattedDate)', style: TextStyle(fontSize: 8, color: Colors.grey.shade500)),
+            ]),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _medsCell() {
+    if (visit.medicines.isEmpty) return _grey('—');
+    return Column(crossAxisAlignment: CrossAxisAlignment.start,
+      children: visit.medicines.take(3).map((m) {
+        final d = [
+          if (m.morning > 0) _dose(m.morning), if (m.afternoon > 0) _dose(m.afternoon),
+          if (m.evening > 0) _dose(m.evening), if (m.night > 0) _dose(m.night),
+        ].join('-');
+        return Padding(padding: const EdgeInsets.only(bottom: 2),
+          child: Text.rich(TextSpan(style: const TextStyle(fontSize: 10), children: [
+            TextSpan(text: m.medicineName,
+                style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF1F2937))),
+            if (m.isFormula) const TextSpan(text: ' (F)',
+                style: TextStyle(fontSize: 8, color: Color(0xFF16A34A), fontWeight: FontWeight.bold)),
+            if (d.isNotEmpty) TextSpan(text: '  $d',
+                style: const TextStyle(color: kTeal, fontWeight: FontWeight.w500)),
+            if (m.forDays.isNotEmpty) TextSpan(text: ' ×${m.forDays}d',
+                style: TextStyle(fontSize: 9, color: Colors.grey.shade500)),
+          ]), maxLines: 1, overflow: TextOverflow.ellipsis));
+      }).toList());
+  }
+
+  Widget _detailPanel() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if ([visit.historyExamination, visit.treatment, visit.consultantNotes, visit.remarks]
+          .any((s) => (s ?? '').isNotEmpty)) ...[
+        _sec('NOTES', Icons.description_outlined, const Color(0xFF2563EB),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if ((visit.historyExamination ?? '').isNotEmpty) _lv('History', visit.historyExamination!),
+            if ((visit.treatment ?? '').isNotEmpty) _lv('Treatment', visit.treatment!),
+            if ((visit.consultantNotes ?? '').isNotEmpty) _lv('Notes', visit.consultantNotes!),
+            if ((visit.remarks ?? '').isNotEmpty) _lv('Remarks', visit.remarks!),
+          ])),
+        const SizedBox(height: 10),
+      ],
+      if (visit.diagnosis.isNotEmpty) ...[
+        _sec('DIAGNOSIS', Icons.assignment_outlined, const Color(0xFF9333EA),
+          Column(crossAxisAlignment: CrossAxisAlignment.start,
+            children: visit.diagnosis.map((dx) {
+              final q = dx.questionText.isNotEmpty ? dx.questionText : 'Q#${dx.questionId}';
+              final a = (dx.answerDisplay ?? dx.answerText ?? '').toString();
+              return Padding(padding: const EdgeInsets.only(bottom: 2),
+                child: Text.rich(TextSpan(style: const TextStyle(fontSize: 11), children: [
+                  TextSpan(text: '$q: ', style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF6B7280))),
+                  TextSpan(text: a, style: const TextStyle(color: Color(0xFF374151))),
+                ])));
+            }).toList())),
+        const SizedBox(height: 10),
+      ],
+      if (visit.investigations.isNotEmpty) ...[
+        _sec('INVESTIGATIONS', Icons.science_outlined, const Color(0xFF059669),
+          Wrap(spacing: 6, runSpacing: 4,
+            children: visit.investigations.map((inv) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: const Color(0xFFA7F3D0))),
+              child: Text.rich(TextSpan(children: [
+                TextSpan(text: inv.testName,
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: Color(0xFF065F46))),
+                TextSpan(text: ' (${inv.investigationType})',
+                    style: const TextStyle(fontSize: 9, color: Color(0xFF6EE7B7))),
+              ])))).toList())),
+        const SizedBox(height: 10),
+      ],
+      if (visit.medicines.isNotEmpty) ...[
+        _sec('MEDICINES', Icons.medication_outlined, const Color(0xFFD97706),
+          Table(
+            columnWidths: const {0: FixedColumnWidth(22), 1: FlexColumnWidth(3),
+              2: FixedColumnWidth(26), 3: FixedColumnWidth(26),
+              4: FixedColumnWidth(26), 5: FixedColumnWidth(26), 6: FixedColumnWidth(34)},
+            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+            children: [
+              TableRow(
+                decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
+                children: const ['#','Medicine','M','A','E','N','Days']
+                    .map((h) => Padding(padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(h,
+                            textAlign: (h == '#' || h == 'Medicine') ? TextAlign.left : TextAlign.center,
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: Colors.grey.shade500))))
+                    .toList()),
+              ...visit.medicines.asMap().entries.map((e) {
+                final m = e.value;
+                return TableRow(
+                  decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade50))),
+                  children: [
+                    _tc('${e.key + 1}', left: true),
+                    Padding(padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text.rich(TextSpan(children: [
+                        TextSpan(text: m.medicineName,
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF1F2937))),
+                        if (m.isFormula) const TextSpan(text: ' (F)',
+                            style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
+                      ]))),
+                    _tc(m.morning > 0 ? _dose(m.morning) : '-'),
+                    _tc(m.afternoon > 0 ? _dose(m.afternoon) : '-'),
+                    _tc(m.evening > 0 ? _dose(m.evening) : '-'),
+                    _tc(m.night > 0 ? _dose(m.night) : '-'),
+                    _tc(m.forDays.isNotEmpty ? m.forDays : '-'),
+                  ]);
+              }),
+            ])),
+        const SizedBox(height: 10),
+      ],
+      if (visit.instructions.isNotEmpty)
+        _sec('INSTRUCTIONS', Icons.checklist_outlined, const Color(0xFFE11D48),
+          Column(crossAxisAlignment: CrossAxisAlignment.start,
+            children: visit.instructions.map((inst) => Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text('• $inst',
+                  textDirection: isUrdu(inst) ? TextDirection.rtl : TextDirection.ltr,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF374151))))).toList())),
+    ]);
+  }
+
+  Widget _sec(String title, IconData icon, Color color, Widget content) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, size: 13, color: color), const SizedBox(width: 5),
+          Text(title, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800,
+              color: color, letterSpacing: 0.5)),
+        ]),
+        const SizedBox(height: 5),
+        Padding(padding: const EdgeInsets.only(left: 4), child: content),
+      ]);
+
+  Widget _lv(String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 2),
+    child: Text.rich(TextSpan(style: const TextStyle(fontSize: 11), children: [
+      TextSpan(text: '$label: ',
+          style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF6B7280))),
+      TextSpan(text: value, style: const TextStyle(color: Color(0xFF374151))),
+    ])),
+  );
+
+  Widget _tc(String val, {bool left = false}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Text(val,
+        textAlign: left ? TextAlign.left : TextAlign.center,
+        style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+  );
+}
 
 // ─── Medicines Tab ──────────────────────────────────────────────────────────
 class _MedicinesTab extends StatelessWidget {

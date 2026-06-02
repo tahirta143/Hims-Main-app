@@ -49,7 +49,7 @@ class PrescriptionMedicine {
     sr: json['sr'],
     medicineName: json['medicine_name'] ?? '',
     medicineId: json['medicine_id'],
-    isFormula: json['is_formula'] ?? false,
+    isFormula: (json['is_formula'] == true || json['is_formula'] == 1),
     dosage: json['dosage'] ?? '',
     morning: (json['morning'] ?? 0).toDouble(),
     afternoon: (json['afternoon'] ?? 0).toDouble(),
@@ -286,7 +286,9 @@ class EyePrescriptionDetails {
     final visi = opto['vision'] as Map<String, dynamic>? ?? {};
 
     return EyePrescriptionDetails(
-      history: Map<String, bool>.from(opto['history'] ?? {}),
+      history: (opto['history'] as Map? ?? {}).map(
+        (k, v) => MapEntry(k.toString(), v == true || v == 1),
+      ),
       otherHistory: opto['otherHistory'] ?? '',
       rightRefraction: RefractionMatrix.fromJson(refr['right'] ?? {}),
       leftRefraction: RefractionMatrix.fromJson(refr['left'] ?? {}),
@@ -305,6 +307,24 @@ class EyePrescriptionDetails {
       surgeryName: mang['surgeryName'],
     );
   }
+}
+
+// ─── Safe list helpers (handle API returning JSON strings instead of arrays) ──
+List<dynamic> _safeList(dynamic value) {
+  if (value == null) return [];
+  if (value is List) return value;
+  if (value is String && value.isNotEmpty) {
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is List) return decoded;
+    } catch (_) {}
+  }
+  return [];
+}
+
+List<String> _safeStringList(dynamic value) {
+  final list = _safeList(value);
+  return list.map((e) => e?.toString() ?? '').where((e) => e.isNotEmpty).toList();
 }
 
 // ─── Main Prescription Model ─────────────────────────────────────────────────
@@ -333,6 +353,9 @@ class PrescriptionModel {
   final List<String> instructions;
   final List<PrescriptionDiagnosis> diagnosis;
 
+  // Lab values sheet (stored per patient/receipt, keyed by parameter → date → value)
+  final Map<String, dynamic>? labValues;
+
   // Eye specifics
   final EyePrescriptionDetails? eyeDetails;
 
@@ -353,6 +376,7 @@ class PrescriptionModel {
     required this.investigations,
     required this.instructions,
     required this.diagnosis,
+    this.labValues,
     this.eyeDetails,
   });
 
@@ -374,6 +398,7 @@ class PrescriptionModel {
       'investigations': investigations.map((e) => e.toJson()).toList(),
       'instructions': instructions,
       'diagnosis_answers': diagnosis.map((e) => e.toJson()).toList(),
+      if (labValues != null) 'lab_values': labValues,
     };
     if (eyeDetails != null) {
       map['eye_details'] = eyeDetails!.toJson();
@@ -403,16 +428,19 @@ class PrescriptionModel {
       doctorSrlNo: json['doctor_srl_no'],
       receiptId: json['receipt_id'],
       createdAt: json['created_at'],
-      vitals: Map<String, String>.from(json['vitals'] ?? {}),
+      vitals: (json['vitals'] as Map? ?? {}).map(
+        (k, v) => MapEntry(k.toString(), v?.toString() ?? ''),
+      ),
       historyExamination: json['history_examination'],
       treatment: json['treatment'],
       consultantNotes: json['consultant_notes'],
       remarks: json['remarks'],
       referTo: json['refer_to'],
-      medicines: (json['medicines'] as List? ?? []).map((e) => PrescriptionMedicine.fromJson(e)).toList(),
-      investigations: (json['investigations'] as List? ?? []).map((e) => PrescriptionInvestigation.fromJson(e)).toList(),
-      instructions: List<String>.from(json['instructions'] ?? []),
-      diagnosis: (json['diagnosis_answers'] as List? ?? []).map((e) => PrescriptionDiagnosis.fromJson(e)).toList(),
+      medicines: _safeList(json['medicines']).map((e) => PrescriptionMedicine.fromJson(e as Map<String, dynamic>)).toList(),
+      investigations: _safeList(json['investigations']).map((e) => PrescriptionInvestigation.fromJson(e as Map<String, dynamic>)).toList(),
+      instructions: _safeStringList(json['instructions']),
+      diagnosis: _safeList(json['diagnosis_answers']).map((e) => PrescriptionDiagnosis.fromJson(e as Map<String, dynamic>)).toList(),
+      labValues: json['lab_values'] is Map ? Map<String, dynamic>.from(json['lab_values'] as Map) : null,
       eyeDetails: eye,
     );
   }

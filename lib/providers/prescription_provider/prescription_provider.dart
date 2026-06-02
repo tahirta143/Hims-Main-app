@@ -5,6 +5,7 @@ import '../../core/services/pdf_eye_prescription_service.dart';
 import '../../core/services/prescription_api_service.dart';
 import '../../core/services/mr_api_service.dart';
 import '../../core/services/vitals_api_service.dart';
+import '../../core/services/ai_api_service.dart';
 import '../../models/vitals_model/vitals_model.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/camp_sync_service.dart';
@@ -16,6 +17,7 @@ class PrescriptionProvider extends ChangeNotifier {
   final PrescriptionApiService _apiService = PrescriptionApiService();
   final MrApiService _mrApiService = MrApiService();
   final VitalsApiService _vitalsApiService = VitalsApiService();
+  final AiApiService _aiApiService = AiApiService();
   final ConnectivityService _connectivity = ConnectivityService();
   final CampSyncService _syncService = CampSyncService();
   final DatabaseHelper _db = DatabaseHelper();
@@ -26,6 +28,8 @@ class PrescriptionProvider extends ChangeNotifier {
   bool _isLoadingPatients = false;
   bool _isLoadingHistory = false;
   bool _isLoadingTests = false;
+  bool _analyzingVisits = false;
+  String? _visitAnalysis;
   String? _errorMessage;
 
   // New Alignment State
@@ -50,6 +54,8 @@ class PrescriptionProvider extends ChangeNotifier {
   bool get isLoadingPatients => _isLoadingPatients;
   bool get isLoadingHistory => _isLoadingHistory;
   bool get isLoadingTests => _isLoadingTests;
+  bool get analyzingVisits => _analyzingVisits;
+  String? get visitAnalysis => _visitAnalysis;
   String? get errorMessage => _errorMessage;
 
   String? get receiptId => _receiptId;
@@ -385,6 +391,8 @@ class PrescriptionProvider extends ChangeNotifier {
     _errorMessage = null;
     _currentPatient = null;
     _currentVitals = null;
+    _prescriptionHistory = [];
+    _visitAnalysis = null;
     _mrSearchValue = mrNumber; // Keep the search value for UI
     for (var c in vitalControllers.values) c.clear();
     for (var c in noteControllers.values) c.clear();
@@ -559,8 +567,22 @@ class PrescriptionProvider extends ChangeNotifier {
     try {
       final res = await _apiService.fetchPrescriptionHistory(mrNumber);
       if (res['success'] == true) {
-        final List raw = res['data'] ?? [];
-        _prescriptionHistory = raw.map((e) => PrescriptionModel.fromJson(e)).toList();
+        // API sometimes returns data as a JSON-encoded string instead of a List.
+        // Decode it first if needed.
+        dynamic rawData = res['data'];
+        if (rawData is String && rawData.isNotEmpty) {
+          try {
+            final decoded = jsonDecode(rawData);
+            if (decoded is List) rawData = decoded;
+          } catch (_) {
+            rawData = [];
+          }
+        }
+        final List raw = rawData is List ? rawData : [];
+        _prescriptionHistory = raw
+            .whereType<Map<String, dynamic>>()
+            .map((e) => PrescriptionModel.fromJson(e))
+            .toList();
       }
     } catch (e) {
       debugPrint('Error fetching history: $e');
@@ -1007,6 +1029,42 @@ class PrescriptionProvider extends ChangeNotifier {
       ph: ctrls['ph']!.text,
       ref: ctrls['ref']!.text,
     );
+  }
+
+  Future<bool> summarizeVisitsWithAI(String patientName) async {
+    if (_prescriptionHistory.isEmpty) return false;
+    _analyzingVisits = true;
+    notifyListeners();
+    try {
+      final records = _prescriptionHistory.map((visit) => {
+        'date': visit.createdAt,
+        'doctor': visit.doctorName,
+        'vitals': visit.vitals,
+        'history_examination': visit.historyExamination,
+        'treatment': visit.treatment,
+        'consultant_notes': visit.consultantNotes,
+        'remarks': visit.remarks,
+        'diagnosis': visit.diagnosis.map((ans) => {
+          'question': ans.questionText,
+          'answer': ans.answerDisplay ?? ans.answerText ?? (ans.answerOptions?.join(', ') ?? '—'),
+        }).toList(),
+        'investigations': visit.investigations.map((i) => '${i.investigationType}: ${i.testName}').toList(),
+        'medicines': visit.medicines.map((m) => m.medicineName).toList(),
+      }).toList();
+
+      final res = await _aiApiService.summarizePatientHistory(records, patientName);
+      if (res['success'] == true) {
+        _visitAnalysis = res['summary'] ?? '';
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error summarizing visits: $e');
+      return false;
+    } finally {
+      _analyzingVisits = false;
+      notifyListeners();
+    }
   }
 
   void clearForm() {
