@@ -25,6 +25,22 @@ const kTextDark = Color(0xFF2D3748);
 const kTextMid = Color(0xFF718096);
 const kWhite = Colors.white;
 
+String getMealTimingLabel(String slot, String? value, String lang, {bool compact = false}) {
+  if (value == null || value.isEmpty) return '';
+  final isUr = lang == 'ur';
+  if (slot == 'morning') {
+    if (value == 'before_breakfast') return compact ? (isUr ? 'پہلے' : 'Before') : (isUr ? 'ناشتے سے پہلے' : 'Before Breakfast');
+    if (value == 'after_breakfast') return compact ? (isUr ? 'بعد' : 'After') : (isUr ? 'ناشتے کے بعد' : 'After Breakfast');
+  } else if (slot == 'afternoon') {
+    if (value == 'before_lunch') return compact ? (isUr ? 'پہلے' : 'Before') : (isUr ? 'دوپہر کے کھانے سے پہلے' : 'Before Lunch');
+    if (value == 'after_lunch') return compact ? (isUr ? 'بعد' : 'After') : (isUr ? 'دوپہر کے کھانے کے بعد' : 'After Lunch');
+  } else if (slot == 'night') {
+    if (value == 'before_dinner') return compact ? (isUr ? 'پہلے' : 'Before') : (isUr ? 'رات کے کھانے سے پہلے' : 'Before Dinner');
+    if (value == 'after_dinner') return compact ? (isUr ? 'بعد' : 'After') : (isUr ? 'رات کے کھانے کے بعد' : 'After Dinner');
+  }
+  return '';
+}
+
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 class PrescriptionScreen extends StatefulWidget {
   final String? initialMr;
@@ -393,7 +409,6 @@ class _PatientInfoCard extends StatelessWidget {
   }
 
   Widget _mobileGrid(BuildContext context, PatientModel? patient) {
-    final doctorName = provider.doctorName ?? (provider.currentPatient != null ? (context.read<PermissionProvider>().fullName ?? 'Doctor') : 'Enter doctor name');
     return Column(
       children: [
         _FieldRow(fields: [
@@ -412,7 +427,8 @@ class _PatientInfoCard extends StatelessWidget {
         ]),
         const SizedBox(height: 10),
         _FieldRow(fields: [
-          _FieldData('Consultant', 'Consultant name', initialValue: doctorName, readOnly: true),
+          // Editable — mirrors React: onChange={(e) => setDoctorName(val)}
+          _FieldData('Consultant', 'Enter doctor name', controller: provider.vitalControllers['consultant']),
           _FieldData('Receipt ID', 'Receipt ID', initialValue: provider.receiptId, controller: provider.vitalControllers['receiptId']),
         ]),
         const SizedBox(height: 12),
@@ -422,7 +438,6 @@ class _PatientInfoCard extends StatelessWidget {
   }
 
   Widget _tabletGrid(BuildContext context, PatientModel? patient) {
-    final doctorName = provider.doctorName ?? (provider.currentPatient != null ? (context.read<PermissionProvider>().fullName ?? 'Doctor') : 'Enter doctor name');
     return Column(
       children: [
         Row(children: [
@@ -440,7 +455,8 @@ class _PatientInfoCard extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(child: _InputField(label: 'Address', hint: '', initialValue: patient?.address, readOnly: true)),
           const SizedBox(width: 12),
-          Expanded(child: _InputField(label: 'Consultant', hint: 'Consultant name', initialValue: doctorName, readOnly: true)),
+          // Editable — mirrors React: onChange={(e) => setDoctorName(val)}
+          Expanded(child: _InputField(label: 'Consultant', hint: 'Enter doctor name', controller: provider.vitalControllers['consultant'])),
           const SizedBox(width: 12),
           Expanded(child: _InputField(label: 'Receipt ID', hint: 'Receipt ID', initialValue: provider.receiptId, controller: provider.vitalControllers['receiptId'])),
         ]),
@@ -1901,10 +1917,49 @@ class _VisitRow extends StatelessWidget {
                         if (m.isFormula) const TextSpan(text: ' (F)',
                             style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
                       ]))),
-                    _tc(m.morning > 0 ? _dose(m.morning) : '-'),
-                    _tc(m.afternoon > 0 ? _dose(m.afternoon) : '-'),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(m.morning > 0 ? _dose(m.morning) : '-', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                          if (m.morningMealTiming != null && m.morning > 0)
+                            Text(
+                              getMealTimingLabel('morning', m.morningMealTiming, 'ur', compact: true),
+                              style: const TextStyle(fontSize: 7, color: kTeal, fontWeight: FontWeight.bold),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(m.afternoon > 0 ? _dose(m.afternoon) : '-', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                          if (m.afternoonMealTiming != null && m.afternoon > 0)
+                            Text(
+                              getMealTimingLabel('afternoon', m.afternoonMealTiming, 'ur', compact: true),
+                              style: const TextStyle(fontSize: 7, color: kTeal, fontWeight: FontWeight.bold),
+                            ),
+                        ],
+                      ),
+                    ),
                     _tc(m.evening > 0 ? _dose(m.evening) : '-'),
-                    _tc(m.night > 0 ? _dose(m.night) : '-'),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(m.night > 0 ? _dose(m.night) : '-', style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                          if (m.nightMealTiming != null && m.night > 0)
+                            Text(
+                              getMealTimingLabel('night', m.nightMealTiming, 'ur', compact: true),
+                              style: const TextStyle(fontSize: 7, color: kTeal, fontWeight: FontWeight.bold),
+                            ),
+                        ],
+                      ),
+                    ),
                     _tc(m.forDays.isNotEmpty ? m.forDays : '-'),
                   ]);
               }),
@@ -2081,13 +2136,17 @@ class _MedicineSearchAreaState extends State<_MedicineSearchArea> {
   final LayerLink _layerLink = LayerLink();
   OverlayEntry? _overlayEntry;
 
+  String? _morningMealTiming;
+  String? _afternoonMealTiming;
+  String? _nightMealTiming;
+
   final Map<String, TextEditingController> _doseCtrls = {
     'm': TextEditingController(text: '0'),
     'a': TextEditingController(text: '0'),
     'e': TextEditingController(text: '0'),
     'n': TextEditingController(text: '0'),
-    'days': TextEditingController(text: '5'),
-    'qty': TextEditingController(text: '1'),
+    'days': TextEditingController(text: ''),
+    'qty': TextEditingController(text: ''),
   };
 
   @override
@@ -2188,7 +2247,7 @@ class _MedicineSearchAreaState extends State<_MedicineSearchArea> {
               children: [
                 _doseInput('m', 'صبح'),
                 _doseInput('a', 'دوپہر'),
-                _doseInput('e', 'شام'),
+                // _doseInput('e', 'شام'),
                 _doseInput('n', 'رات'),
                 const SizedBox(width: 8),
                 Expanded(
@@ -2215,9 +2274,23 @@ class _MedicineSearchAreaState extends State<_MedicineSearchArea> {
                         evening: double.tryParse(_doseCtrls['e']!.text) ?? 0,
                         night: double.tryParse(_doseCtrls['n']!.text) ?? 0,
                         isFormula: widget.provider.medMode == 'formula',
+                        morningMealTiming: _morningMealTiming,
+                        afternoonMealTiming: _afternoonMealTiming,
+                        nightMealTiming: _nightMealTiming,
                       );
                       widget.provider.addMedicine(med);
                       _searchCtrl.clear();
+                      _doseCtrls['m']!.text = '0';
+                      _doseCtrls['a']!.text = '0';
+                      _doseCtrls['e']!.text = '0';
+                      _doseCtrls['n']!.text = '0';
+                      _doseCtrls['days']!.text = '';
+                      _doseCtrls['qty']!.text = '';
+                      setState(() {
+                        _morningMealTiming = null;
+                        _afternoonMealTiming = null;
+                        _nightMealTiming = null;
+                      });
                     }
                   },
                   style: IconButton.styleFrom(backgroundColor: kTeal, foregroundColor: kWhite),
@@ -2231,6 +2304,22 @@ class _MedicineSearchAreaState extends State<_MedicineSearchArea> {
   }
 
   Widget _doseInput(String key, String urduLabel) {
+    final hasMealTiming = key == 'm' || key == 'a' || key == 'n';
+    String? currentTiming;
+    if (key == 'm') currentTiming = _morningMealTiming;
+    if (key == 'a') currentTiming = _afternoonMealTiming;
+    if (key == 'n') currentTiming = _nightMealTiming;
+
+    final lang = widget.provider.inputLang;
+    final defaultLabel = lang == 'ur' ? 'وقت' : 'Meal';
+    final buttonText = getMealTimingLabel(
+        key == 'm'
+            ? 'morning'
+            : (key == 'a' ? 'afternoon' : 'night'),
+        currentTiming,
+        lang,
+        compact: true);
+
     return Expanded(
       child: Padding(
         padding: const EdgeInsets.only(right: 4),
@@ -2245,6 +2334,104 @@ class _MedicineSearchAreaState extends State<_MedicineSearchArea> {
               style: const TextStyle(fontSize: 11),
               decoration: InputDecoration(isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8), border: OutlineInputBorder(borderRadius: BorderRadius.circular(4))),
             ),
+            if (hasMealTiming) ...[
+              const SizedBox(height: 4),
+              PopupMenuButton<String>(
+                tooltip: lang == 'ur' ? 'کھانے کا وقت' : 'Meal timing',
+                offset: const Offset(0, 24),
+                color: kWhite,
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: const BorderSide(color: kBorder, width: 1),
+                ),
+                onSelected: (val) {
+                  setState(() {
+                    if (key == 'm') _morningMealTiming = (_morningMealTiming == val) ? null : val;
+                    if (key == 'a') _afternoonMealTiming = (_afternoonMealTiming == val) ? null : val;
+                    if (key == 'n') _nightMealTiming = (_nightMealTiming == val) ? null : val;
+                  });
+                },
+                itemBuilder: (context) {
+                  final items = <String, String>{};
+                  if (key == 'm') {
+                    items['before_breakfast'] = lang == 'ur' ? 'ناشتے سے پہلے' : 'Before Breakfast';
+                    items['after_breakfast'] = lang == 'ur' ? 'ناشتے کے بعد' : 'After Breakfast';
+                  } else if (key == 'a') {
+                    items['before_lunch'] = lang == 'ur' ? 'دوپہر کے کھانے سے پہلے' : 'Before Lunch';
+                    items['after_lunch'] = lang == 'ur' ? 'دوپہر کے کھانے کے بعد' : 'After Lunch';
+                  } else {
+                    items['before_dinner'] = lang == 'ur' ? 'رات کے کھانے سے پہلے' : 'Before Dinner';
+                    items['after_dinner'] = lang == 'ur' ? 'رات کے کھانے کے بعد' : 'After Dinner';
+                  }
+
+                  return items.entries.map((entry) {
+                    final isSelected = currentTiming == entry.key;
+                    return PopupMenuItem<String>(
+                      value: entry.key,
+                      height: 36,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isSelected ? kTeal : Colors.transparent,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                entry.value,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  color: isSelected ? kTeal : kTextDark,
+                                ),
+                              ),
+                            ),
+                            if (isSelected)
+                              const Icon(Icons.check, size: 14, color: kTeal),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList();
+                },
+                child: Container(
+                  height: 22,
+                  width: double.infinity,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: buttonText.isNotEmpty ? kTealLight : Colors.white,
+                    border: Border.all(color: buttonText.isNotEmpty ? kTeal : Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        buttonText.isNotEmpty ? buttonText : defaultLabel,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          color: buttonText.isNotEmpty ? kTeal : Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.arrow_drop_down,
+                        size: 12,
+                        color: buttonText.isNotEmpty ? kTeal : Colors.grey.shade600,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -2285,7 +2472,24 @@ class _MedicineTable extends StatelessWidget {
                 dense: true,
                 visualDensity: VisualDensity.compact,
                 title: Text(med.medicineName, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                subtitle: Text(med.isFormula ? 'Formula' : 'Medicine', style: const TextStyle(fontSize: 9, color: kTextMid)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(med.isFormula ? 'Formula' : 'Medicine', style: const TextStyle(fontSize: 9, color: kTextMid)),
+                    if (med.morningMealTiming != null || med.afternoonMealTiming != null || med.nightMealTiming != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          [
+                            if (med.morningMealTiming != null) 'Morn: ${getMealTimingLabel("morning", med.morningMealTiming, provider.inputLang)}',
+                            if (med.afternoonMealTiming != null) 'Aft: ${getMealTimingLabel("afternoon", med.afternoonMealTiming, provider.inputLang)}',
+                            if (med.nightMealTiming != null) 'Night: ${getMealTimingLabel("night", med.nightMealTiming, provider.inputLang)}',
+                          ].join(' | '),
+                          style: const TextStyle(fontSize: 9, color: kTeal, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                  ],
+                ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [

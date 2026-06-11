@@ -354,6 +354,25 @@ class PDFEyePrescriptionService {
     );
   }
 
+  static String _getMealTimingLabel(String? value) {
+    switch (value) {
+      case 'before_breakfast':
+        return 'Before Breakfast';
+      case 'after_breakfast':
+        return 'After Breakfast';
+      case 'before_lunch':
+        return 'Before Lunch';
+      case 'after_lunch':
+        return 'After Lunch';
+      case 'before_dinner':
+        return 'Before Dinner';
+      case 'after_dinner':
+        return 'After Dinner';
+      default:
+        return '';
+    }
+  }
+
   // ─── Medicines (matches React buildMedRows with dosage + meal timing) ────────
   static pw.Widget _buildMedicines(PrescriptionModel rx, pw.Font font, pw.Font fontBold) {
     return pw.Column(
@@ -364,10 +383,21 @@ class PDFEyePrescriptionService {
 
         // Build timing string
         final timingParts = <String>[];
-        if (med.morning > 0) timingParts.add('Morn: ${_fmtDose(med.morning)}');
-        if (med.afternoon > 0) timingParts.add('Aft: ${_fmtDose(med.afternoon)}');
-        if (med.evening > 0) timingParts.add('Eve: ${_fmtDose(med.evening)}');
-        if (med.night > 0) timingParts.add('Night: ${_fmtDose(med.night)}');
+        if (med.morning > 0) {
+          final t = _getMealTimingLabel(med.morningMealTiming);
+          timingParts.add('Morn: ${_fmtDose(med.morning)}${t.isNotEmpty ? " ($t)" : ""}');
+        }
+        if (med.afternoon > 0) {
+          final t = _getMealTimingLabel(med.afternoonMealTiming);
+          timingParts.add('Aft: ${_fmtDose(med.afternoon)}${t.isNotEmpty ? " ($t)" : ""}');
+        }
+        if (med.evening > 0) {
+          timingParts.add('Eve: ${_fmtDose(med.evening)}');
+        }
+        if (med.night > 0) {
+          final t = _getMealTimingLabel(med.nightMealTiming);
+          timingParts.add('Night: ${_fmtDose(med.night)}${t.isNotEmpty ? " ($t)" : ""}');
+        }
         
         final hasQty = med.qty.isNotEmpty && med.qty != '0';
         final qtyStr = hasQty ? '  |  Qty: ${med.qty}' : '';

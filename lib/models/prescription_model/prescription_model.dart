@@ -16,6 +16,9 @@ class PrescriptionMedicine {
   final double night;
   final String forDays;
   final String qty;
+  final String? morningMealTiming;
+  final String? afternoonMealTiming;
+  final String? nightMealTiming;
 
   PrescriptionMedicine({
     this.sr,
@@ -29,6 +32,9 @@ class PrescriptionMedicine {
     this.night = 0,
     this.forDays = '',
     this.qty = '',
+    this.morningMealTiming,
+    this.afternoonMealTiming,
+    this.nightMealTiming,
   });
 
   Map<String, dynamic> toJson() => {
@@ -43,6 +49,9 @@ class PrescriptionMedicine {
     'night': night,
     'for_days': forDays,
     'qty': qty,
+    'morning_meal_timing': morningMealTiming,
+    'afternoon_meal_timing': afternoonMealTiming,
+    'night_meal_timing': nightMealTiming,
   };
 
   factory PrescriptionMedicine.fromJson(Map<String, dynamic> json) => PrescriptionMedicine(
@@ -57,6 +66,9 @@ class PrescriptionMedicine {
     night: (json['night'] ?? 0).toDouble(),
     forDays: json['for_days']?.toString() ?? '',
     qty: json['qty']?.toString() ?? '',
+    morningMealTiming: json['morning_meal_timing']?.toString(),
+    afternoonMealTiming: json['afternoon_meal_timing']?.toString(),
+    nightMealTiming: json['night_meal_timing']?.toString(),
   );
 }
 

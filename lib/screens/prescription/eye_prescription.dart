@@ -1169,8 +1169,8 @@ class _EyeMedicineSearchAreaState extends State<_EyeMedicineSearchArea> {
     'a': TextEditingController(text: '0'),
     'e': TextEditingController(text: '0'),
     'n': TextEditingController(text: '0'),
-    'days': TextEditingController(text: '5'),
-    'qty': TextEditingController(text: '1'),
+    'days': TextEditingController(text: ''),
+    'qty': TextEditingController(text: ''),
   };
 
   @override
@@ -1300,6 +1300,12 @@ class _EyeMedicineSearchAreaState extends State<_EyeMedicineSearchArea> {
                       );
                       widget.provider.addMedicine(med);
                       _searchCtrl.clear();
+                      _doseCtrls['m']!.text = '0';
+                      _doseCtrls['a']!.text = '0';
+                      _doseCtrls['e']!.text = '0';
+                      _doseCtrls['n']!.text = '0';
+                      _doseCtrls['days']!.text = '';
+                      _doseCtrls['qty']!.text = '';
                     }
                   },
                   style: IconButton.styleFrom(backgroundColor: kTeal, foregroundColor: kWhite),

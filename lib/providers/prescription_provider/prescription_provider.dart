@@ -120,6 +120,7 @@ class PrescriptionProvider extends ChangeNotifier {
     'receiptId': TextEditingController(),
     'spo2': TextEditingController(),
     'pain_scale': TextEditingController(),
+    'consultant': TextEditingController(), // Editable — mirrors React's doctorName state
   };
 
   final Map<String, TextEditingController> noteControllers = {
@@ -333,11 +334,31 @@ class PrescriptionProvider extends ChangeNotifier {
     _receiptId = patient['receipt_id']?.toString();
     _tokenNumber = patient['token_number']?.toString();
     _doctorSrlNo = int.tryParse(patient['doctor_srl_no']?.toString() ?? '');
-    _doctorName = patient['doctor_name']?.toString();
-    
-    vitalControllers['receiptId']?.text = _receiptId ?? '';
 
+    // Mirror React's selectConsultPatient logic:
+    // 1. Use doctor_name directly if available
+    // 2. Fallback: parse "Dr. <name>" from service_detail
+    final rawDoctorName = patient['doctor_name']?.toString();
+    if (rawDoctorName != null && rawDoctorName.isNotEmpty) {
+      _doctorName = rawDoctorName;
+    } else {
+      final detail = patient['service_detail']?.toString() ?? '';
+      final drMatch = RegExp(r'Dr\.\s*(.+)', caseSensitive: false).firstMatch(detail);
+      if (drMatch != null) {
+        _doctorName = drMatch.group(1)?.trim();
+      } else {
+        _doctorName = null;
+      }
+    }
+
+    // Set controllers AFTER searchPatient, because searchPatient clears
+    // all vitalControllers at the start. Setting them before would get wiped.
+    // (React avoids this because setState() values are independent of search.)
     await searchPatient(mr, department: department);
+    vitalControllers['receiptId']?.text = _receiptId ?? '';
+    // Populate consultant controller from resolved _doctorName
+    vitalControllers['consultant']?.text = _doctorName ?? '';
+    notifyListeners();
   }
 
   void setMedMode(String mode) {
@@ -879,9 +900,15 @@ class PrescriptionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Use the consultant controller text (user may have edited it in the field)
+      // matching React where doctorName state is updated via onChange.
+      final resolvedDoctorName = vitalControllers['consultant']?.text.trim().isNotEmpty == true
+          ? vitalControllers['consultant']!.text.trim()
+          : doctorName;
+
       final prescription = PrescriptionModel(
         mrNumber: _currentPatient?.mrNumber ?? '',
-        doctorName: doctorName,
+        doctorName: resolvedDoctorName,
         doctorSrlNo: doctorSrlNo,
         receiptId: _receiptId,
         vitals: vitalControllers.map((key, controller) => MapEntry(key, controller.text)),
