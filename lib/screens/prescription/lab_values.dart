@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../custum widgets/drawer/base_scaffold.dart';
+import '../../providers/camp_provider.dart';
 import '../../providers/prescription_provider/prescription_provider.dart';
 import '../../providers/prescription_provider/lab_values_provider.dart';
 import '../../core/utils/date_formatter.dart';
@@ -33,8 +34,19 @@ class _LabValuesScreenState extends State<LabValuesScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<PrescriptionProvider>().loadConsultationPatients();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final provider = context.read<PrescriptionProvider>();
+      final camp = context.read<CampProvider>();
+      provider.clearForm();
+      if (camp.isCampMode && camp.campId != null) {
+        await provider.loadCampPatients(camp.campId!);
+        if (camp.medicalAssistant.isNotEmpty) {
+          final cleaned = camp.medicalAssistant.replaceFirst(RegExp(r'^Dr\.\s*', caseSensitive: false), '');
+          provider.setDoctorName(cleaned);
+        }
+      } else {
+        await provider.loadConsultationPatients();
+      }
     });
   }
 
@@ -303,7 +315,7 @@ class _ConsultationSidebar extends StatelessWidget {
                           
                           return ListTile(
                             dense: true,
-                            onTap: () => provider.selectConsultationPatient(p),
+                            onTap: () => provider.selectConsultationPatient(p, department: 'Lab'),
                             title: Row(
                               children: [
                                 Expanded(child: Text(p['patient_name'] ?? '', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),

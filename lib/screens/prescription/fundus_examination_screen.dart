@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:animate_do/animate_do.dart';
 import '../../custum widgets/drawer/base_scaffold.dart';
 import '../../models/eye_model/fundus_examination_model.dart';
+import '../../providers/camp_provider.dart';
 import '../../providers/eye_provider/fundus_provider.dart';
 import '../../providers/prescription_provider/prescription_provider.dart';
 import '../../core/providers/permission_provider.dart';
@@ -31,10 +32,21 @@ class _FundusExaminationScreenState extends State<FundusExaminationScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final fundusProvider = context.read<FundusProvider>();
       final prescriptionProvider = context.read<PrescriptionProvider>();
-      fundusProvider.startConsultationTimer(prescriptionProvider);
+      final camp = context.read<CampProvider>();
+      
+      prescriptionProvider.clearForm();
+      if (camp.isCampMode && camp.campId != null) {
+        await prescriptionProvider.loadCampPatients(camp.campId!);
+        if (camp.medicalAssistant.isNotEmpty) {
+          final cleaned = camp.medicalAssistant.replaceFirst(RegExp(r'^Dr\.\s*', caseSensitive: false), '');
+          prescriptionProvider.setDoctorName(cleaned);
+        }
+      } else {
+        fundusProvider.startConsultationTimer(prescriptionProvider);
+      }
     });
   }
 

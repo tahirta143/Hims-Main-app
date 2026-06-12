@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:animate_do/animate_do.dart';
 import '../../custum widgets/drawer/base_scaffold.dart';
+import '../../providers/camp_provider.dart';
 import '../../providers/nutrition_provider/nutrition_provider.dart';
 import '../../providers/prescription_provider/prescription_provider.dart';
 import '../../core/providers/permission_provider.dart';
@@ -40,9 +41,22 @@ class _NutritionScreenState extends State<NutritionScreen> {
     _prescriptionProvider = context.read<PrescriptionProvider>();
     _prescriptionProvider.addListener(_onPrescriptionProviderChanged);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final nutritionProvider = context.read<NutritionProvider>();
-      nutritionProvider.startConsultationTimer(_prescriptionProvider);
+      final camp = context.read<CampProvider>();
+      
+      _prescriptionProvider.clearForm();
+      nutritionProvider.clearForm();
+      if (camp.isCampMode && camp.campId != null) {
+        await _prescriptionProvider.loadCampPatients(camp.campId!);
+        if (camp.nutritionist.isNotEmpty) {
+          final cleaned = camp.nutritionist.replaceFirst(RegExp(r'^Dr\.\s*', caseSensitive: false), '');
+          nutritionProvider.controllers['doctorName']!.text = cleaned;
+          _prescriptionProvider.setDoctorName(cleaned);
+        }
+      } else {
+        nutritionProvider.startConsultationTimer(_prescriptionProvider);
+      }
       if (_prescriptionProvider.currentPatient != null) {
         _onPrescriptionProviderChanged();
       }
@@ -60,6 +74,12 @@ class _NutritionScreenState extends State<NutritionScreen> {
       } else {
         nutritionProvider.clearHistory();
       }
+    }
+    
+    final doc = _prescriptionProvider.doctorName;
+    if (doc != null && doc.isNotEmpty) {
+      final cleaned = doc.replaceFirst(RegExp(r'^Dr\.\s*', caseSensitive: false), '');
+      nutritionProvider.controllers['doctorName']!.text = cleaned;
     }
   }
 
@@ -95,7 +115,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (isMobile) const SharedConsultationDropdown(),
+                  if (isMobile) const SharedConsultationDropdown(department: 'Nutritionist'),
                   if (isMobile) const SizedBox(height: 16),
 
                   // ── Patient Info ──────────────────────────────────────────
@@ -262,7 +282,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
             if (!isMobile)
               const Expanded(
                 flex: 3,
-                child: SharedConsultationSidebar(),
+                child: SharedConsultationSidebar(department: 'Nutritionist'),
               ),
           ],
         ),

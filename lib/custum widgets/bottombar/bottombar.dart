@@ -90,9 +90,17 @@ class _CustomFluidBottomNavBarState extends State<CustomFluidBottomNavBar>
   @override
   void initState() {
     super.initState();
-    _visibleItems = [_allItems.first];
-    _initAnimations(_visibleItems.length, 0);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncVisibleItems());
+    // Synchronously compute initial visible items to prevent visual layout shifts
+    final initialVisible = _computeVisibleItems();
+    _visibleItems = initialVisible.isEmpty ? [_allItems.first] : initialVisible;
+    _lastBuiltCount = _visibleItems.length;
+
+    final visualIndex = _visibleItems
+        .indexWhere((item) => item.drawerIndex == widget.currentIndex);
+    final safeIndex = visualIndex < 0 ? 0 : visualIndex;
+    _prevIndex = safeIndex;
+
+    _initAnimations(_visibleItems.length, safeIndex);
   }
 
   @override
@@ -118,11 +126,11 @@ class _CustomFluidBottomNavBarState extends State<CustomFluidBottomNavBar>
       return _campItems.where((item) {
         switch (item.drawerIndex) {
           case 8:
-            return perm.canAny([Perm.mrRead, Perm.mrCreate]);
+            return perm.can(Perm.mrRead);
           case 13:
-            return perm.hasResource('PRESCRIPTION.VITALS');
+            return perm.canAny([Perm.vitalsRead, Perm.vitalsCreate]);
           case 9:
-            return perm.hasResource('PRESCRIPTION.GP_RECORD');
+            return perm.canAny([Perm.prescriptionRead, Perm.prescriptionCreate]);
           default:
             return true;
         }
@@ -279,7 +287,7 @@ class _CustomFluidBottomNavBarState extends State<CustomFluidBottomNavBar>
 
     return AnimatedBuilder(
       animation: _slideAnim!,
-      builder: (_, __) {
+      builder: (_, _) {
         final double fromX =
             _prevIndex.clamp(0, items.length - 1) * itemWidth + itemWidth / 2;
         final double toX = safeCurrentIndex * itemWidth + itemWidth / 2;
@@ -351,7 +359,7 @@ class _CustomFluidBottomNavBarState extends State<CustomFluidBottomNavBar>
     if (currentIndex >= _controllers.length) return const SizedBox.shrink();
     return AnimatedBuilder(
       animation: _controllers[currentIndex],
-      builder: (_, __) {
+      builder: (_, _) {
         return ScaleTransition(
           scale: _scaleAnims[currentIndex],
           child: Container(

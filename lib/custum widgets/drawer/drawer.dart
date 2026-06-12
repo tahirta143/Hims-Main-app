@@ -455,23 +455,41 @@ class _CustomDrawerState extends State<CustomDrawer> {
     CampProvider camp,
   ) {
     return [
-      if (perm.canAny([Perm.mrRead, Perm.mrCreate]))
+      if (perm.can(Perm.mrRead))
         _buildDrawerItem(
           icon: Icons.person_outline_rounded,
           title: 'MR Details',
           index: 8,
         ),
-      if (perm.hasResource('PRESCRIPTION.VITALS'))
+      if (perm.canAny([Perm.vitalsRead, Perm.vitalsCreate]))
         _buildDrawerItem(
           icon: Icons.monitor_heart_outlined,
           title: 'Vitals',
           index: 13,
         ),
-      if (perm.hasResource('PRESCRIPTION.GP_RECORD'))
+      if (perm.canAny([Perm.prescriptionRead, Perm.prescriptionCreate]))
         _buildDrawerItem(
           icon: Icons.medication_outlined,
           title: 'Prescription',
           index: 9,
+        ),
+      if (perm.can(Perm.nutritionistRead))
+        _buildDrawerItem(
+          icon: Icons.restaurant_menu_outlined,
+          title: 'Nutritionist',
+          index: 15,
+        ),
+      if (perm.can(Perm.labValuesRead))
+        _buildDrawerItem(
+          icon: Icons.biotech_outlined,
+          title: 'Lab Values',
+          index: 14,
+        ),
+      if (perm.can(Perm.fundusRead))
+        _buildDrawerItem(
+          icon: Icons.visibility_outlined,
+          title: 'Fundus Examination',
+          index: 16,
         ),
       const Divider(height: 24),
       _buildExitCampItem(context, camp),

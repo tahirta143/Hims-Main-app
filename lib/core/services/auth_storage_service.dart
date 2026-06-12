@@ -130,6 +130,30 @@ class AuthStorageService {
     await _storage.delete(key: _keyActiveCamp);
   }
 
+  static const _keyActiveTeam = 'active_team';
+
+  Future<void> saveActiveTeam(Map<String, dynamic>? team) async {
+    if (team == null) {
+      await _storage.delete(key: _keyActiveTeam);
+    } else {
+      await _storage.write(key: _keyActiveTeam, value: jsonEncode(team));
+    }
+  }
+
+  Future<Map<String, dynamic>?> getActiveTeam() async {
+    final raw = await _safeRead(_keyActiveTeam);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearActiveTeam() async {
+    await _storage.delete(key: _keyActiveTeam);
+  }
+
   static String campJoinDismissKey(String userId) =>
       'camp_join_dismissed_$userId';
 

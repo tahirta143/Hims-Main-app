@@ -917,4 +917,69 @@ class CampSyncService {
       return {'success': false, 'message': 'Delete error: $e'};
     }
   }
+
+  // ─── Teams API (mirrors campTeamsService.js) ─────────────────────────────
+
+  Future<Map<String, dynamic>> getAllTeams() async {
+    try {
+      final headers = await _authHeaders();
+      final url = '${GlobalApi.baseUrl}/camp-sync/teams';
+      final response = await http.get(Uri.parse(url), headers: headers).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) return jsonDecode(response.body) as Map<String, dynamic>;
+      return {'success': false, 'message': 'Failed to fetch teams: ${response.statusCode}'};
+    } catch (e) {
+      return {'success': false, 'message': 'Teams error: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> createTeam(Map<String, dynamic> payload) async {
+    try {
+      final headers = await _authHeaders();
+      final url = '${GlobalApi.baseUrl}/camp-sync/teams';
+      final response = await http.post(Uri.parse(url), headers: headers, body: jsonEncode(payload)).timeout(const Duration(seconds: 15));
+      final result = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200 || response.statusCode == 201) return result;
+      return {'success': false, 'message': result['message'] ?? 'Create team failed'};
+    } catch (e) {
+      return {'success': false, 'message': 'Create team error: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> updateTeam(String teamId, Map<String, dynamic> payload) async {
+    try {
+      final headers = await _authHeaders();
+      final url = '${GlobalApi.baseUrl}/camp-sync/teams/$teamId';
+      final response = await http.put(Uri.parse(url), headers: headers, body: jsonEncode(payload)).timeout(const Duration(seconds: 15));
+      final result = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200 || response.statusCode == 201) return result;
+      return {'success': false, 'message': result['message'] ?? 'Update team failed'};
+    } catch (e) {
+      return {'success': false, 'message': 'Update team error: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> assignTeamToCamp(String campId, Map<String, dynamic> payload) async {
+    try {
+      final headers = await _authHeaders();
+      final url = '${GlobalApi.baseUrl}/camp-sync/teams/camp/$campId/assign';
+      final response = await http.post(Uri.parse(url), headers: headers, body: jsonEncode(payload)).timeout(const Duration(seconds: 15));
+      final result = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200 || response.statusCode == 201) return result;
+      return {'success': false, 'message': result['message'] ?? 'Assign team failed', 'errors': result['errors']};
+    } catch (e) {
+      return {'success': false, 'message': 'Assign team error: $e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> getTeamsByCamp(String campId) async {
+    try {
+      final headers = await _authHeaders();
+      final url = '${GlobalApi.baseUrl}/camp-sync/teams/camp/$campId';
+      final response = await http.get(Uri.parse(url), headers: headers).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) return jsonDecode(response.body) as Map<String, dynamic>;
+      return {'success': false, 'message': 'Failed to fetch camp teams: ${response.statusCode}'};
+    } catch (e) {
+      return {'success': false, 'message': 'Camp teams error: $e'};
+    }
+  }
 }

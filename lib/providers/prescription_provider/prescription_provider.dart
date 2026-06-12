@@ -9,6 +9,7 @@ import '../../core/services/ai_api_service.dart';
 import '../../models/vitals_model/vitals_model.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/camp_sync_service.dart';
+import '../../core/services/auth_storage_service.dart';
 import '../../core/utils/database_helper.dart';
 import '../../models/mr_model/mr_patient_model.dart';
 import '../../models/prescription_model/prescription_model.dart';
@@ -21,6 +22,7 @@ class PrescriptionProvider extends ChangeNotifier {
   final ConnectivityService _connectivity = ConnectivityService();
   final CampSyncService _syncService = CampSyncService();
   final DatabaseHelper _db = DatabaseHelper();
+  final AuthStorageService _storage = AuthStorageService();
 
   // ─── Loading States ───────────────────────────────────────────────
   bool _isLoading = false;
@@ -266,6 +268,15 @@ class PrescriptionProvider extends ChangeNotifier {
     notifyListeners();
     await loadEyeSetupItems();
 
+    final activeCamp = await _storage.getActiveCamp();
+    if (activeCamp != null) {
+      final campId = activeCamp['id']?.toString();
+      if (campId != null) {
+        await loadCampPatients(campId);
+        return;
+      }
+    }
+
     try {
       // 1. Load local pending visits
       final localVisits = await _db.queryAll('visits_local');
@@ -424,6 +435,12 @@ class PrescriptionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setDoctorName(String? name) {
+    _doctorName = name;
+    vitalControllers['consultant']?.text = name ?? '';
+    notifyListeners();
+  }
+
   Future<void> searchPatient(String mrNumber, {String? department}) async {
     _isLoading = true;
     _errorMessage = null;
@@ -434,6 +451,21 @@ class PrescriptionProvider extends ChangeNotifier {
     _mrSearchValue = mrNumber; // Keep the search value for UI
     for (var c in vitalControllers.values) c.clear();
     for (var c in noteControllers.values) c.clear();
+    
+    final activeCamp = await _storage.getActiveCamp();
+    if (activeCamp != null) {
+      final activeTeam = await _storage.getActiveTeam();
+      String rawDocName = '';
+      if (department == 'Nutritionist') {
+        rawDocName = activeTeam?['nutritionist']?.toString() ?? '';
+      } else if (department == 'Eye' || department == 'Lab' || department == 'Vitals') {
+        rawDocName = activeTeam?['medical_assistant']?.toString() ?? '';
+      } else {
+        rawDocName = activeTeam?['medical_officer']?.toString() ?? '';
+      }
+      _doctorName = rawDocName.replaceFirst(RegExp(r'^Dr\.\s*', caseSensitive: false), '');
+    }
+    
     notifyListeners();
 
     try {
@@ -507,6 +539,7 @@ class PrescriptionProvider extends ChangeNotifier {
       _errorMessage = 'An error occurred while searching: $e';
     } finally {
       _isLoading = false;
+      vitalControllers['consultant']?.text = _doctorName ?? '';
       notifyListeners();
     }
   }

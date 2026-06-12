@@ -65,6 +65,12 @@ class _PrescriptionScreenState extends State<PrescriptionScreen>
       provider.clearForm();
       if (camp.isCampMode && camp.campId != null) {
         await provider.loadCampPatients(camp.campId!);
+        // ── Pre-fill consultant from selected team's medical_officer ──────────
+        // Mirrors React: when a team is selected on login, their MO name is the
+        // default doctor/consultant name across all clinical screens.
+        if (camp.medicalOfficer.isNotEmpty) {
+          provider.vitalControllers['consultant']?.text = camp.medicalOfficer;
+        }
       } else {
         await provider.loadConsultationPatients();
         provider.prefillMrPrefix();

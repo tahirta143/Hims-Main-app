@@ -90,6 +90,11 @@ class VitalsProvider extends ChangeNotifier {
     super.dispose();
   }
 
+  void setDoctorName(String? name) {
+    _doctorName = name;
+    notifyListeners();
+  }
+
   // ─── Patient Search ──────────────────────────────────────────────────
   Future<void> searchPatient(String mrNumber, {String? customReceiptId, String? customDoctor, String? tokenNumber}) async {
     _isLoading = true;
@@ -97,7 +102,16 @@ class VitalsProvider extends ChangeNotifier {
     _currentPatient = null;
     _receiptId = customReceiptId;
     _tokenNumber = tokenNumber;
-    _doctorName = customDoctor;
+    
+    final activeCamp = await _storage.getActiveCamp();
+    if (activeCamp != null) {
+      final activeTeam = await _storage.getActiveTeam();
+      final assistant = activeTeam?['medical_assistant']?.toString() ?? '';
+      _doctorName = assistant.replaceFirst(RegExp(r'^Dr\.\s*', caseSensitive: false), '');
+    } else {
+      _doctorName = customDoctor;
+    }
+    
     notifyListeners();
 
     final mr = mrNumber.trim();

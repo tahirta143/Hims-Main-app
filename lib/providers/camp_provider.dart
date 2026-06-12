@@ -3,18 +3,26 @@ import '../core/services/auth_storage_service.dart';
 import '../core/services/camp_sync_service.dart';
 import '../models/mr_model/mr_patient_model.dart';
 
-/// Web-style camp mode (matches React CampContext).
+/// Web-style camp mode (matches React CampContext + team selection).
 class CampProvider extends ChangeNotifier {
   final CampSyncService _sync = CampSyncService();
   final AuthStorageService _storage = AuthStorageService();
 
   Map<String, dynamic>? _activeCamp;
+  Map<String, dynamic>? _selectedTeam; // null = no team chosen
   bool _loading = true;
 
   Map<String, dynamic>? get activeCamp => _activeCamp;
+  Map<String, dynamic>? get selectedTeam => _selectedTeam;
   bool get isCampMode => _activeCamp != null;
   bool get loading => _loading;
   String? get campId => _activeCamp?['id']?.toString();
+
+  // ── Team-member name helpers (used in prescription / nutrition / vitals) ──
+  String get medicalOfficer => _selectedTeam?['medical_officer']?.toString() ?? '';
+  String get nutritionist   => _selectedTeam?['nutritionist']?.toString()   ?? '';
+  String get medicalAssistant => _selectedTeam?['medical_assistant']?.toString() ?? '';
+  String get teamName       => _selectedTeam?['team_name']?.toString()       ?? '';
 
   String get campDisplayName {
     if (_activeCamp == null) return '';
@@ -29,6 +37,10 @@ class CampProvider extends ChangeNotifier {
     final stored = await _storage.getActiveCamp();
     if (stored != null) {
       _activeCamp = _normalizeCamp(stored);
+    }
+    final storedTeam = await _storage.getActiveTeam();
+    if (storedTeam != null) {
+      _selectedTeam = storedTeam;
     }
     _loading = false;
     notifyListeners();
@@ -56,13 +68,30 @@ class CampProvider extends ChangeNotifier {
     return [];
   }
 
-  Future<({bool success, String? message})> loginToCamp(String campId) async {
+  /// Fetch teams assigned to a specific camp (matches React getTeamsByCamp).
+  Future<List<Map<String, dynamic>>> fetchTeamsByCamp(String campId) async {
+    final result = await _sync.getTeamsByCamp(campId);
+    if (result['success'] == true) {
+      final list = result['data'] as List? ?? [];
+      return list.map((t) => Map<String, dynamic>.from(t as Map)).toList();
+    }
+    return [];
+  }
+
+  /// Join a camp, optionally with a selected team.
+  /// Matches React: loginToCamp(campId, teamId, teamObject).
+  Future<({bool success, String? message})> loginToCamp(
+    String campId, {
+    Map<String, dynamic>? team,
+  }) async {
     final result = await _sync.webSelectCamp(campId);
     if (result['success'] == true) {
       final data = result['data'] as Map<String, dynamic>? ?? {};
       final camp = data['camp'] as Map<String, dynamic>? ?? data;
       _activeCamp = _normalizeCamp(Map<String, dynamic>.from(camp));
+      _selectedTeam = team;
       await _storage.saveActiveCamp(_activeCamp!);
+      await _storage.saveActiveTeam(_selectedTeam);
       notifyListeners();
       return (success: true, message: null);
     }
@@ -74,7 +103,9 @@ class CampProvider extends ChangeNotifier {
 
   Future<void> exitCamp() async {
     _activeCamp = null;
+    _selectedTeam = null;
     await _storage.clearActiveCamp();
+    await _storage.clearActiveTeam();
     notifyListeners();
   }
 
@@ -107,7 +138,7 @@ class CampProvider extends ChangeNotifier {
         'service_detail': p['last_vitals_at'] != null
             ? 'Vitals recorded'
             : 'Camp patient',
-        'doctor_name': '',
+        'doctor_name': medicalOfficer,
         'token_number': null,
       };
     }).toList();

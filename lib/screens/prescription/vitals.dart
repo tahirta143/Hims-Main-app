@@ -41,6 +41,10 @@ class _VitalsScreenState extends State<VitalsScreen> {
       provider.clearForm();
       if (camp.isCampMode && camp.campId != null) {
         await provider.fetchCampPatients(camp.campId!);
+        if (camp.medicalAssistant.isNotEmpty) {
+          final cleaned = camp.medicalAssistant.replaceFirst(RegExp(r'^Dr\.\s*', caseSensitive: false), '');
+          provider.setDoctorName(cleaned);
+        }
       } else {
         await provider.fetchConsultationPatients();
       }
