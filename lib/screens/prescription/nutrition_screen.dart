@@ -111,99 +111,151 @@ class _NutritionScreenState extends State<NutritionScreen> {
                   const SizedBox(height: 20),
 
                   // ── Tab Selector ──────────────────────────────────────────
-                  _buildTabSelector(nutritionProvider, prescriptionProvider),
-                  const SizedBox(height: 16),
+                  Stack(
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildTabSelector(nutritionProvider, prescriptionProvider),
+                          const SizedBox(height: 16),
 
-                  if (_activeTab == 'current') ...[
-                    // ── Nutritional Assessment & Plan ─────────────────────
-                    FadeInUp(
-                      delay: const Duration(milliseconds: 100),
-                      child: _buildSectionCard(
-                        title: 'Nutritional Assessment & Plan',
-                        icon: Icons.scale_outlined,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildSubHeader('MACRONUTRIENT GOALS', Icons.local_fire_department_outlined),
-                            const SizedBox(height: 6),
-                            _buildMacroRow(nutritionProvider),
-                            const SizedBox(height: 12),
+                          if (_activeTab == 'current') ...[
+                            // ── Nutritional Assessment & Plan ─────────────────────
+                            FadeInUp(
+                              delay: const Duration(milliseconds: 100),
+                              child: _buildSectionCard(
+                                title: 'Nutritional Assessment & Plan',
+                                icon: Icons.scale_outlined,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildSubHeader('MACRONUTRIENT GOALS', Icons.local_fire_department_outlined),
+                                    const SizedBox(height: 6),
+                                    _buildMacroRow(nutritionProvider),
+                                    const SizedBox(height: 12),
 
-                            _buildSubHeader('DIET SPECIFICATIONS', Icons.opacity_outlined),
-                            const SizedBox(height: 6),
-                            _buildSpecsRow(mq.size.width, nutritionProvider),
-                            const SizedBox(height: 12),
+                                    _buildSubHeader('DIET SPECIFICATIONS', Icons.opacity_outlined),
+                                    const SizedBox(height: 6),
+                                    _buildSpecsRow(mq.size.width, nutritionProvider),
+                                    const SizedBox(height: 12),
 
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: _InputField(
-                                    label: 'Dietary Recommendations',
-                                    hint: 'Enter recommendations...',
-                                    maxLines: 2,
-                                    controller: nutritionProvider.controllers['dietaryRec'],
-                                  ),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: _InputField(
+                                            label: 'Dietary Recommendations',
+                                            hint: 'Enter recommendations...',
+                                            maxLines: 2,
+                                            controller: nutritionProvider.controllers['dietaryRec'],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: _InputField(
+                                            label: 'Lifestyle Recommendations',
+                                            hint: 'Enter suggestions...',
+                                            maxLines: 2,
+                                            controller: nutritionProvider.controllers['lifestyleRec'],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _InputField(
-                                    label: 'Lifestyle Recommendations',
-                                    hint: 'Enter suggestions...',
-                                    maxLines: 2,
-                                    controller: nutritionProvider.controllers['lifestyleRec'],
-                                  ),
-                                ),
-                              ],
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+
+                            // ── Diet Plan Schedule ────────────────────────────────
+                            FadeInUp(
+                              delay: const Duration(milliseconds: 200),
+                              child: _buildSectionCard(
+                                title: 'Diet Plan Schedule',
+                                icon: Icons.calendar_today_outlined,
+                                child: _buildScheduleList(mq.size.width, nutritionProvider),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+
+                            // ── Save & Print Button ───────────────────────────────
+                            FadeInUp(
+                              delay: const Duration(milliseconds: 300),
+                              child: _SavePrintButton(
+                                isTablet: !isMobile,
+                                onPressed: () async {
+                                  final savedId = await nutritionProvider.savePrescription(prescriptionProvider);
+                                  if (savedId != null) {
+                                    if (!mounted) return;
+                                    _showSuccessDialog(context, nutritionProvider, savedId);
+                                  } else {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Failed to save prescription. Ensure a patient is selected.'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                },
+                                isLoading: nutritionProvider.isSaving,
+                                isEnabled: prescriptionProvider.currentPatient != null && prescriptionProvider.hasAnyVitals,
+                              ),
+                            ),
+                          ] else ...[
+                            // ── Old Visits ────────────────────────────────────────
+                            FadeInUp(
+                              delay: const Duration(milliseconds: 100),
+                              child: _buildOldVisitsSection(nutritionProvider, prescriptionProvider),
                             ),
                           ],
-                        ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // ── Diet Plan Schedule ────────────────────────────────
-                    FadeInUp(
-                      delay: const Duration(milliseconds: 200),
-                      child: _buildSectionCard(
-                        title: 'Diet Plan Schedule',
-                        icon: Icons.calendar_today_outlined,
-                        child: _buildScheduleList(mq.size.width, nutritionProvider),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // ── Save & Print Button ───────────────────────────────
-                    FadeInUp(
-                      delay: const Duration(milliseconds: 300),
-                      child: _SavePrintButton(
-                        isTablet: !isMobile,
-                        onPressed: () async {
-                          final savedId = await nutritionProvider.savePrescription(prescriptionProvider);
-                          if (savedId != null) {
-                            if (!mounted) return;
-                            _showSuccessDialog(context, nutritionProvider, savedId);
-                          } else {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Failed to save prescription. Ensure a patient is selected.'),
-                                backgroundColor: Colors.red,
+                      if (prescriptionProvider.currentPatient != null && !prescriptionProvider.hasAnyVitals)
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.85),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 24),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEF2F2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFFECACA)),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.05),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.monitor_heart_outlined, color: Colors.red, size: 20),
+                                    SizedBox(width: 10),
+                                    Flexible(
+                                      child: Text(
+                                        'Please add patient vitals to create prescription',
+                                        style: TextStyle(
+                                          color: Color(0xFF991B1B), // red 800
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            );
-                          }
-                        },
-                        isLoading: nutritionProvider.isSaving,
-                        isEnabled: prescriptionProvider.currentPatient != null,
-                      ),
-                    ),
-                  ] else ...[
-                    // ── Old Visits ────────────────────────────────────────
-                    FadeInUp(
-                      delay: const Duration(milliseconds: 100),
-                      child: _buildOldVisitsSection(nutritionProvider, prescriptionProvider),
-                    ),
-                  ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -853,10 +905,13 @@ class _PatientInfoCard extends StatelessWidget {
   }
 
   Widget _mobileGrid(BuildContext context, PatientModel? patient) {
-    final doctorName = provider.doctorName ??
+    final rawDoctorName = provider.doctorName ??
         (provider.currentPatient != null
-            ? (context.read<PermissionProvider>().fullName ?? 'Doctor')
-            : 'Enter doctor name');
+            ? (context.read<PermissionProvider>().fullName ?? '')
+            : '');
+    final displayDoctorName = rawDoctorName.isNotEmpty
+        ? (rawDoctorName.toLowerCase().startsWith('dr.') ? rawDoctorName : 'Dr. $rawDoctorName')
+        : '';
     return Column(
       children: [
         _FieldRow(fields: [
@@ -880,8 +935,8 @@ class _PatientInfoCard extends StatelessWidget {
         ]),
         const SizedBox(height: 10),
         _FieldRow(fields: [
-          _FieldData('Consultant', 'Consultant name',
-              initialValue: doctorName,
+          _FieldData('Nutritionist / Doctor', 'Enter name',
+              initialValue: displayDoctorName,
               controller: nutritionProvider.controllers['doctorName']),
           _FieldData('Receipt ID', 'Receipt ID',
               initialValue: provider.receiptId,
@@ -892,10 +947,13 @@ class _PatientInfoCard extends StatelessWidget {
   }
 
   Widget _tabletGrid(BuildContext context, PatientModel? patient) {
-    final doctorName = provider.doctorName ??
+    final rawDoctorName = provider.doctorName ??
         (provider.currentPatient != null
-            ? (context.read<PermissionProvider>().fullName ?? 'Doctor')
-            : 'Enter doctor name');
+            ? (context.read<PermissionProvider>().fullName ?? '')
+            : '');
+    final displayDoctorName = rawDoctorName.isNotEmpty
+        ? (rawDoctorName.toLowerCase().startsWith('dr.') ? rawDoctorName : 'Dr. $rawDoctorName')
+        : '';
     return Column(
       children: [
         Row(children: [
@@ -937,9 +995,9 @@ class _PatientInfoCard extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: _InputField(
-                label: 'Consultant',
-                hint: 'Consultant name',
-                initialValue: doctorName,
+                label: 'Nutritionist / Doctor',
+                hint: 'Enter name',
+                initialValue: displayDoctorName,
                 controller: nutritionProvider.controllers['doctorName']),
           ),
           const SizedBox(width: 12),
@@ -963,9 +1021,33 @@ class _VitalsSummaryBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<PrescriptionProvider>();
+    final v = vitals;
+
+    // Matches React's vitals grid exactly:
+    // weight, height, bmi, bmr, bsr, bp, pulse, spo2, temp, pain, waist, hip, whr, blood_group, remarks
+    final items = [
+      _VitalItem(label: 'Weight',  key: 'weight',     unit: 'kg',    editable: true),
+      _VitalItem(label: 'Height',  key: 'height',     unit: v?.heightUnit ?? 'in', editable: true),
+      _VitalItem(label: 'BMI',     key: 'bmi',        unit: '',      editable: false, value: v?.bmi?.toString()),
+      _VitalItem(label: 'BMR',     key: 'bmr',        unit: 'kcal',  editable: false, value: v?.bmr?.toString()),
+      _VitalItem(label: 'BSR',     key: 'bsr',        unit: v?.bsrType == 'fasting' ? 'mg/dl F' : 'mg/dl R', editable: false, value: v?.bsr?.toString()),
+      _VitalItem(label: 'B.P.',    key: 'bp',         unit: '',      editable: true,  placeholder: '120/80'),
+      _VitalItem(label: 'Pulse',   key: 'pulse',      unit: 'bpm',   editable: true),
+      _VitalItem(label: 'SpO2',    key: 'spo2',       unit: '%',     editable: true),
+      _VitalItem(label: 'Temp',    key: 'temp',       unit: '°F',    editable: true),
+      _VitalItem(label: 'Pain',    key: 'pain_scale', unit: '/10',   editable: true),
+      _VitalItem(label: 'Waist',   key: 'waist',      unit: 'cm',    editable: false, value: v?.waist?.toString()),
+      _VitalItem(label: 'Hip',     key: 'hip',        unit: 'cm',    editable: false, value: v?.hip?.toString()),
+      _VitalItem(label: 'WHR',     key: 'whr',        unit: '',      editable: false, value: v?.whr?.toString()),
+      _VitalItem(label: 'Blood Grp', key: 'blood_group', unit: '',   editable: false, value: provider.currentPatient?.bloodGroup),
+      _VitalItem(label: 'Blood Sugar', key: 'blood',  unit: 'mg/dl', editable: true),
+      _VitalItem(label: 'Remarks', key: 'remarks',    unit: '',      editable: false, value: v?.remarks, wide: true),
+    ];
+
     if (vitals == null) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: const Color(0xFFF1F5F9),
           borderRadius: BorderRadius.circular(8),
@@ -984,25 +1066,8 @@ class _VitalsSummaryBox extends StatelessWidget {
       );
     }
 
-    final items = [
-      {'label': 'Weight', 'val': '${vitals!.weight ?? '—'}', 'unit': 'kg'},
-      {'label': 'Height', 'val': '${vitals!.height ?? '—'}', 'unit': 'in'},
-      {'label': 'BMI', 'val': '${vitals!.bmi ?? '—'}', 'unit': ''},
-      {
-        'label': 'B.P.',
-        'val': (vitals!.systolic != null && vitals!.diastolic != null)
-            ? '${vitals!.systolic}/${vitals!.diastolic}'
-            : '—',
-        'unit': 'mmHg'
-      },
-      {'label': 'Pulse', 'val': '${vitals!.pulse ?? '—'}', 'unit': 'bpm'},
-      {'label': 'SpO2', 'val': '${vitals!.spo2 ?? '—'}', 'unit': '%'},
-      {'label': 'Temp', 'val': '${vitals!.temperature ?? '—'}', 'unit': '°F'},
-      {'label': 'Pain', 'val': '${vitals!.painScale}', 'unit': '/10'},
-    ];
-
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
@@ -1015,52 +1080,157 @@ class _VitalsSummaryBox extends StatelessWidget {
             children: [
               Icon(Icons.monitor_heart_outlined, size: 14, color: Color(0xFF3B82F6)),
               SizedBox(width: 6),
-              Text('VITALS',
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A))),
+              Text('VITALS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1E3A8A), letterSpacing: 0.5)),
             ],
           ),
-          const SizedBox(height: 8),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              crossAxisSpacing: 6,
-              mainAxisSpacing: 6,
-              childAspectRatio: 1.8,
-            ),
-            itemCount: items.length,
-            itemBuilder: (context, i) {
-              final it = items[i];
-              return Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: kWhite,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: const Color(0xFFF1F5F9)),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(it['label']!.toUpperCase(),
-                        style: const TextStyle(
-                            fontSize: 7, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text('${it['val']} ${it['unit']}',
-                          style: const TextStyle(
-                              fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF334155))),
+          const SizedBox(height: 10),
+          LayoutBuilder(builder: (context, lbc) {
+            final sw = MediaQuery.of(context).size.width;
+            final isT = sw > 600;
+            final crossCount = isT ? 8 : 4;
+
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: items.map((item) {
+                final cellW = (lbc.maxWidth - (crossCount - 1) * 8) / crossCount;
+                final w = item.wide ? (cellW * 2 + 8) : cellW;  // wide = double width
+
+                return SizedBox(
+                  width: w,
+                  child: Container(
+                    constraints: BoxConstraints(
+                      minHeight: isT ? 54.0 : 62.0,
                     ),
-                  ],
-                ),
-              );
-            },
-          ),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFF1F5F9)),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(item.label.toUpperCase(),
+                            style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8))),
+                        const SizedBox(height: 2),
+                        item.editable
+                            ? _editableCell(provider, item)
+                            : _readOnlyCell(item),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          }),
         ],
       ),
     );
   }
+
+  Widget _editableCell(PrescriptionProvider provider, _VitalItem item) {
+    final ctrl = provider.vitalControllers[item.key];
+    if (ctrl == null) return _readOnlyCell(item);
+    final isLongUnit = item.unit.length > 4;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: ctrl,
+                keyboardType: item.key == 'bp' ? TextInputType.text : TextInputType.number,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  border: InputBorder.none,
+                  hintText: item.placeholder ?? '—',
+                  hintStyle: const TextStyle(color: Color(0xFFCBD5E1)),
+                ),
+              ),
+            ),
+            if (item.unit.isNotEmpty && !isLongUnit) ...[
+              const SizedBox(width: 2),
+              Text(item.unit, style: const TextStyle(fontSize: 8, color: Color(0xFF64748B))),
+            ],
+          ],
+        ),
+        if (item.unit.isNotEmpty && isLongUnit)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(item.unit, style: const TextStyle(fontSize: 7, color: Color(0xFF64748B))),
+          ),
+      ],
+    );
+  }
+
+  Widget _readOnlyCell(_VitalItem item) {
+    final val = item.value;
+    final isLongUnit = item.unit.length > 4;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Flexible(
+              child: Text(
+                val?.isNotEmpty == true ? val! : '—',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: val?.isNotEmpty == true ? const Color(0xFF334155) : const Color(0xFFCBD5E1),
+                ),
+                overflow: item.wide ? TextOverflow.clip : TextOverflow.ellipsis,
+                maxLines: item.wide ? null : 1,
+              ),
+            ),
+            if (item.unit.isNotEmpty && val?.isNotEmpty == true && !isLongUnit) ...[
+              const SizedBox(width: 2),
+              Text(item.unit, style: const TextStyle(fontSize: 8, color: Color(0xFF64748B))),
+            ],
+          ],
+        ),
+        if (item.unit.isNotEmpty && val?.isNotEmpty == true && isLongUnit)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(item.unit, style: const TextStyle(fontSize: 7, color: Color(0xFF64748B))),
+          ),
+      ],
+    );
+  }
+}
+
+class _VitalItem {
+  final String label;
+  final String key;
+  final String unit;
+  final bool editable;
+  final String? value;
+  final String? placeholder;
+  final bool wide;
+  const _VitalItem({
+    required this.label,
+    required this.key,
+    required this.unit,
+    required this.editable,
+    this.value,
+    this.placeholder,
+    this.wide = false,
+  });
 }
 
 // ─── Field Helpers ────────────────────────────────────────────────────────────
@@ -1146,13 +1316,20 @@ class _InputFieldState extends State<_InputField> {
   void initState() {
     super.initState();
     _ctrl = widget.controller ?? TextEditingController(text: widget.initialValue);
+    if (widget.controller != null && widget.initialValue != null && _ctrl.text.isEmpty) {
+      _ctrl.text = widget.initialValue!;
+    }
   }
 
   @override
   void didUpdateWidget(_InputField oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialValue != oldWidget.initialValue && widget.initialValue != null) {
-      _ctrl.text = widget.initialValue!;
+      final newText = widget.initialValue ?? '';
+      _ctrl.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length),
+      );
     }
   }
 

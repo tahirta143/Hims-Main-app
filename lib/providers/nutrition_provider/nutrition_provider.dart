@@ -88,15 +88,21 @@ class NutritionProvider extends ChangeNotifier {
 
     try {
       final patient = prescriptionProvider.currentPatient!;
-      final vitals = prescriptionProvider.currentVitals;
+      
+      // Save inline vitals first (if any vitals were entered or exist)
+      final savedVitals = await prescriptionProvider.saveInlineVitals();
+      final vitals = savedVitals ?? prescriptionProvider.currentVitals;
+
+      final rawDoc = controllers['doctorName']!.text.isNotEmpty 
+          ? controllers['doctorName']!.text 
+          : (prescriptionProvider.doctorName ?? '');
+      final docName = rawDoc.replaceFirst(RegExp(r'^Dr\.\s*', caseSensitive: false), '').trim();
 
       final payload = NutritionPrescriptionModel(
         mrNumber: patient.mrNumber,
         receiptId: prescriptionProvider.receiptId,
         doctorSrlNo: null, // As seen in React code
-        doctorName: controllers['doctorName']!.text.isNotEmpty 
-            ? controllers['doctorName']!.text 
-            : (prescriptionProvider.doctorName ?? ''),
+        doctorName: docName,
         
         // Vitals
         temp: vitals?.temperature?.toString(),

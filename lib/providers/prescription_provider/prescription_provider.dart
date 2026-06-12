@@ -74,6 +74,23 @@ class PrescriptionProvider extends ChangeNotifier {
 
   bool get isAdmissionReferral => noteControllers['referTo']!.text.trim().toLowerCase().contains('admission');
 
+  // Predefined Instructions State
+  List<dynamic> _predefinedInstructions = [];
+  List<dynamic> get predefinedInstructions => _predefinedInstructions;
+
+  List<dynamic> _filteredInstructions = [];
+  List<dynamic> get filteredInstructions => _filteredInstructions;
+
+  bool _isLoadingInstructions = false;
+  bool get isLoadingInstructions => _isLoadingInstructions;
+
+  bool get hasAnyVitals {
+    if (_currentPatient == null) return false;
+    if (_currentVitals != null) return true;
+    final keys = ['weight', 'height', 'bp', 'pulse', 'spo2', 'temp', 'pain_scale'];
+    return keys.any((k) => vitalControllers[k]?.text.trim().isNotEmpty == true);
+  }
+
   // ─── Patient State ────────────────────────────────────────────────
   PatientModel? _currentPatient;
   PatientModel? get currentPatient => _currentPatient;
@@ -804,6 +821,40 @@ class PrescriptionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> fetchPredefinedInstructions() async {
+    _isLoadingInstructions = true;
+    notifyListeners();
+    try {
+      if (_connectivity.isOnline.value) {
+        final res = await _apiService.fetchPredefinedInstructions();
+        if (res['success'] == true) {
+          final all = res['data'] as List? ?? [];
+          _predefinedInstructions = all.where((inst) => inst['is_active'] == 1 || inst['is_active'] == true).toList();
+          _filteredInstructions = List.from(_predefinedInstructions);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching predefined instructions: $e');
+    } finally {
+      _isLoadingInstructions = false;
+      notifyListeners();
+    }
+  }
+
+  void filterInstructions(String query) {
+    if (query.trim().isEmpty) {
+      _filteredInstructions = List.from(_predefinedInstructions);
+    } else {
+      _filteredInstructions = _predefinedInstructions
+          .where((inst) => (inst['instruction_text'] ?? '')
+              .toString()
+              .toLowerCase()
+              .contains(query.toLowerCase()))
+          .toList();
+    }
+    notifyListeners();
+  }
+
   void addInstruction(String text) {
     if (text.trim().isNotEmpty) {
       _instructions.add(text.trim());
@@ -1004,6 +1055,104 @@ class PrescriptionProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<VitalsModel?> saveInlineVitals() async {
+    if (_currentPatient == null) {
+      debugPrint('⚠️ Cannot save inline vitals: _currentPatient is null');
+      return null;
+    }
+
+    final hasVitalsInput = ['weight', 'height', 'bp', 'pulse', 'spo2', 'temp', 'blood', 'pain_scale']
+        .any((key) => vitalControllers[key]?.text.trim().isNotEmpty == true);
+
+    if (!hasVitalsInput && _currentVitals == null) return null;
+
+    final bpText = vitalControllers['bp']?.text ?? '';
+    int? systolic;
+    int? diastolic;
+    if (bpText.isNotEmpty) {
+      final parts = bpText.split('/');
+      if (parts.isNotEmpty) systolic = int.tryParse(parts.first.trim());
+      if (parts.length > 1) diastolic = int.tryParse(parts[1].trim());
+    }
+
+    final weight = double.tryParse(vitalControllers['weight']?.text ?? '');
+    final height = double.tryParse(vitalControllers['height']?.text ?? '');
+    final heightUnit = _currentVitals?.heightUnit ?? 'in';
+
+    double? bmi;
+    if (weight != null && height != null && height > 0) {
+      final meters = heightUnit == 'cm' ? height / 100 : height * 0.0254;
+      if (meters > 0) {
+        bmi = double.parse((weight / (meters * meters)).toStringAsFixed(1));
+      }
+    }
+
+    final payload = {
+      'mr_number': _currentPatient!.mrNumber,
+      'receipt_id': _receiptId,
+      'weight': weight,
+      'height': height,
+      'height_unit': heightUnit,
+      'bsr': double.tryParse(vitalControllers['blood']?.text ?? '') ?? _currentVitals?.bsr,
+      'bmi': bmi ?? _currentVitals?.bmi,
+      'bmr': _currentVitals?.bmr,
+      'systolic': systolic,
+      'diastolic': diastolic,
+      'bp_reading_type': (systolic != null && diastolic != null) ? (_currentVitals?.bpReadingType ?? 'regular') : null,
+      'pulse': int.tryParse(vitalControllers['pulse']?.text ?? ''),
+      'spo2': double.tryParse(vitalControllers['spo2']?.text ?? ''),
+      'temperature': double.tryParse(vitalControllers['temp']?.text ?? ''),
+      'waist': _currentVitals?.waist,
+      'hip': _currentVitals?.hip,
+      'whr': _currentVitals?.whr,
+      'pain_scale': int.tryParse(vitalControllers['pain_scale']?.text ?? '') ?? _currentVitals?.painScale,
+      'remarks': _currentVitals?.remarks,
+    };
+
+    try {
+      if (_connectivity.isOnline.value) {
+        debugPrint('📤 Saving vitals online: $payload');
+        final res = await _vitalsApiService.saveVitals(payload);
+        if (res['success'] == true && res['data'] != null) {
+          _currentVitals = VitalsModel.fromJson(res['data']);
+          notifyListeners();
+          return _currentVitals;
+        } else {
+          debugPrint('❌ Online vitals save failed: ${res['message']}');
+        }
+      } else {
+        debugPrint('📴 Saving vitals locally (offline)');
+        final visitUuid = _syncService.generateUuid();
+        final localData = {
+          'device_uuid': _syncService.generateUuid(),
+          'patient_uuid': _currentPatient!.deviceUuid ?? _currentPatient!.mrNumber,
+          'mr_number': _currentPatient!.mrNumber == 'PENDING' ? null : _currentPatient!.mrNumber,
+          'visit_uuid': visitUuid,
+          'bsr': double.tryParse(vitalControllers['blood']?.text ?? '') ?? 0.0,
+          'systolic': systolic ?? 0.0,
+          'diastolic': diastolic ?? 0.0,
+          'pulse': int.tryParse(vitalControllers['pulse']?.text ?? '') ?? 0.0,
+          'weight': weight ?? 0.0,
+          'temp': double.tryParse(vitalControllers['temp']?.text ?? '') ?? 0.0,
+          'sync_status': 'pending',
+          'created_at': DateTime.now().toIso8601String(),
+        };
+        await _db.insert('vitals_local', localData);
+
+        final normalized = Map<String, dynamic>.from(localData);
+        normalized['temperature'] = normalized['temp'];
+        normalized['receipt_id'] = _receiptId;
+        _currentVitals = VitalsModel.fromJson(normalized);
+        notifyListeners();
+        return _currentVitals;
+      }
+    } catch (e) {
+      debugPrint('❌ Error in saveInlineVitals: $e');
+    }
+    return null;
+  }
+
 
   void updateSurgerySearch(String query) {
     if (query.isEmpty) {

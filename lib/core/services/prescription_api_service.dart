@@ -126,4 +126,18 @@ class PrescriptionApiService {
       return {'success': false, 'message': e.toString()};
     }
   }
+
+  // ─── GET /api/instructions-setup ─────────────────────────────────
+  Future<Map<String, dynamic>> fetchPredefinedInstructions() async {
+    try {
+      final headers = await _authHeaders();
+      final response = await http.get(
+        Uri.parse('${GlobalApi.baseUrl}/instructions-setup'),
+        headers: headers,
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
 }

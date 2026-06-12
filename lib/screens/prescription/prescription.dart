@@ -69,6 +69,7 @@ class _PrescriptionScreenState extends State<PrescriptionScreen>
         await provider.loadConsultationPatients();
         provider.prefillMrPrefix();
       }
+      await provider.fetchPredefinedInstructions();
       final mr = widget.initialMr?.trim();
       if (mr != null && mr.isNotEmpty) {
         await provider.searchPatient(mr);
@@ -260,7 +261,7 @@ class _SavePrintButton extends StatelessWidget {
       width: double.infinity,
       height: isTablet ? 52 : 48,
       child: ElevatedButton.icon(
-        onPressed: provider.currentPatient == null ? null : () async {
+        onPressed: (provider.currentPatient == null || !provider.hasAnyVitals) ? null : () async {
           debugPrint('🟢 [PrescriptionScreen] Save & Print button pressed');
           final patient = provider.currentPatient;
           debugPrint('🟢 [PrescriptionScreen] Current patient: ${patient?.fullName} (${patient?.mrNumber})');
@@ -964,52 +965,100 @@ class _TabSection extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
+      child: Stack(
         children: [
-          // Tab bar
-          Container(
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: kBorder)),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-            ),
-            child: TabBar(
-              controller: tabController,
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              labelColor: kTeal,
-              unselectedLabelColor: kTextMid,
-              indicatorColor: kTeal,
-              indicatorWeight: 2.5,
-              dividerColor: Colors.transparent,
-              labelStyle: TextStyle(
-                fontSize: isTablet ? 13 : 11,
-                fontWeight: FontWeight.w600,
+          Column(
+            children: [
+              // Tab bar
+              Container(
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: kBorder)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                ),
+                child: TabBar(
+                  controller: tabController,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  labelColor: kTeal,
+                  unselectedLabelColor: kTextMid,
+                  indicatorColor: kTeal,
+                  indicatorWeight: 2.5,
+                  dividerColor: Colors.transparent,
+                  labelStyle: TextStyle(
+                    fontSize: isTablet ? 13 : 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  unselectedLabelStyle: TextStyle(
+                    fontSize: isTablet ? 13 : 11,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  padding: EdgeInsets.zero,
+                  tabs: _tabs
+                      .map(
+                        (t) => Tab(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(t[0] as IconData,
+                              size: isTablet ? 16 : 14),
+                          const SizedBox(width: 5),
+                          Text(t[1] as String),
+                        ],
+                      ),
+                    ),
+                  )
+                      .toList(),
+                ),
               ),
-              unselectedLabelStyle: TextStyle(
-                fontSize: isTablet ? 13 : 11,
-                fontWeight: FontWeight.w400,
-              ),
-              padding: EdgeInsets.zero,
-              tabs: _tabs
-                  .map(
-                    (t) => Tab(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(t[0] as IconData,
-                          size: isTablet ? 16 : 14),
-                      const SizedBox(width: 5),
-                      Text(t[1] as String),
-                    ],
+
+              // Tab views — intrinsic height via IndexedStack
+              _TabViewBody(tabController: tabController, isTablet: isTablet, provider: provider),
+            ],
+          ),
+          if (provider.currentPatient != null && !provider.hasAnyVitals)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFECACA)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.monitor_heart_outlined, color: Colors.red, size: 20),
+                        const SizedBox(width: 10),
+                        Flexible(
+                          child: Text(
+                            'Please add patient vitals to create prescription',
+                            style: TextStyle(
+                              color: Colors.red.shade800,
+                              fontWeight: FontWeight.bold,
+                              fontSize: isTablet ? 13 : 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              )
-                  .toList(),
+              ),
             ),
-          ),
-
-          // Tab views — intrinsic height via IndexedStack
-          _TabViewBody(tabController: tabController, isTablet: isTablet, provider: provider),
         ],
       ),
     );
@@ -1350,70 +1399,167 @@ class _InvestigationsTabState extends State<_InvestigationsTab> {
 
 
 // ─── Instructions Tab ────────────────────────────────────────────────────────
-class _InstructionsTab extends StatelessWidget {
+class _InstructionsTab extends StatefulWidget {
   final bool isTablet;
   final PrescriptionProvider provider;
   const _InstructionsTab({required this.isTablet, required this.provider});
 
   @override
-  Widget build(BuildContext context) {
-    final TextEditingController instCtrl = TextEditingController();
+  State<_InstructionsTab> createState() => _InstructionsTabState();
+}
 
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: instCtrl,
-                  decoration: InputDecoration(
-                    hintText: 'Add instruction...',
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+class _InstructionsTabState extends State<_InstructionsTab> {
+  final TextEditingController _instCtrl = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  bool _isFocused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(_onFocusChange);
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_onFocusChange);
+    _focusNode.dispose();
+    _instCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    setState(() {
+      _isFocused = _focusNode.hasFocus;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = widget.provider;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        _focusNode.unfocus();
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Focus(
+                    onFocusChange: (hasFocus) {
+                      setState(() {
+                        _isFocused = hasFocus;
+                      });
+                    },
+                    child: TextField(
+                      controller: _instCtrl,
+                      focusNode: _focusNode,
+                      decoration: InputDecoration(
+                        hintText: 'Type or search instructions...',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: kBorder),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: kTeal, width: 1.5),
+                        ),
+                      ),
+                      onChanged: (val) {
+                        provider.filterInstructions(val);
+                      },
+                      onSubmitted: (val) {
+                        if (val.trim().isNotEmpty) {
+                          provider.addInstruction(val);
+                          _instCtrl.clear();
+                          provider.filterInstructions('');
+                        }
+                      },
+                    ),
                   ),
-                  onSubmitted: (val) {
-                    provider.addInstruction(val);
-                    instCtrl.clear();
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: () {
+                    if (_instCtrl.text.trim().isNotEmpty) {
+                      provider.addInstruction(_instCtrl.text);
+                      _instCtrl.clear();
+                      provider.filterInstructions('');
+                    }
+                  },
+                  icon: const Icon(Icons.add),
+                  style: IconButton.styleFrom(backgroundColor: kTeal),
+                ),
+              ],
+            ),
+            if (_isFocused && provider.filteredInstructions.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 180),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: provider.filteredInstructions.length,
+                  itemBuilder: (context, index) {
+                    final inst = provider.filteredInstructions[index];
+                    final text = (inst['instruction_text'] ?? '').toString();
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.add, size: 14, color: Colors.green),
+                      title: Text(text, style: const TextStyle(fontSize: 12)),
+                      onTap: () {
+                        provider.addInstruction(text);
+                        _instCtrl.clear();
+                        provider.filterInstructions('');
+                      },
+                    );
                   },
                 ),
               ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                onPressed: () {
-                  provider.addInstruction(instCtrl.text);
-                  instCtrl.clear();
-                },
-                icon: const Icon(Icons.add),
-                style: IconButton.styleFrom(backgroundColor: kTeal),
-              ),
             ],
-          ),
-          const SizedBox(height: 16),
-          if (provider.instructions.isEmpty)
-            const Center(child: Text('No instructions added.', style: TextStyle(color: kTextMid, fontSize: 13)))
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: provider.instructions.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                return ListTile(
-                  dense: true,
-                  tileColor: kBg,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  title: Text(provider.instructions[index], style: const TextStyle(fontSize: 13)),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.close, size: 18, color: Colors.grey),
-                    onPressed: () => provider.removeInstruction(index),
-                  ),
-                );
-              },
-            ),
-        ],
+            const SizedBox(height: 16),
+            if (provider.instructions.isEmpty)
+              const Center(child: Text('No instructions added.', style: TextStyle(color: kTextMid, fontSize: 13)))
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: provider.instructions.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  return ListTile(
+                    dense: true,
+                    tileColor: kBg,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    title: Text(provider.instructions[index], style: const TextStyle(fontSize: 13)),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close, size: 18, color: Colors.grey),
+                      onPressed: () => provider.removeInstruction(index),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
       ),
     );
   }
