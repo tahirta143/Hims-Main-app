@@ -178,7 +178,7 @@ class _SyncDashboardBodyState extends State<_SyncDashboardBody> {
                 ),
                 Text(
                   isOnline 
-                    ? 'Connected to Waseela Diabesity API' 
+                    ? 'Connected to Hims Diabesity API' 
                     : 'Working locally. Data will sync later.',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.8),

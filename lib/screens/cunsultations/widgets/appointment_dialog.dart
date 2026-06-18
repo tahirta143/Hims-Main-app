@@ -335,7 +335,7 @@ class _AppointmentDialogState extends State<AppointmentDialog> {
       availableDays: widget.doctor.availableDays,
       timings: widget.doctor.timings,
       hospital: widget.doctor.hospital.isEmpty || widget.doctor.hospital.toLowerCase().contains('al-rehman') 
-          ? 'Waseela Diabesity Center' 
+          ? 'HIMS Hospital' 
           : widget.doctor.hospital,
       mrNo: _mrCtrl.text,
       patientName: _nameCtrl.text.trim(),
@@ -643,7 +643,7 @@ class _AppointmentDialogState extends State<AppointmentDialog> {
                                 Expanded(
                                   child: Text(
                                     widget.doctor.hospital.isEmpty || widget.doctor.hospital.toLowerCase().contains('al-rehman') 
-                                        ? 'Waseela Diabesity Center' 
+                                        ? 'HIMS Hospital' 
                                         : widget.doctor.hospital,
                                     style: TextStyle(
                                       fontSize: fsXS,

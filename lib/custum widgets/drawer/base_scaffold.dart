@@ -403,9 +403,9 @@ class _BaseScaffoldState extends State<BaseScaffold> {
       case 9:
         screen = const PrescriptionScreen();
         break;
-      // case 12:
-      //   screen = const EyePrescriptionScreen();
-      //   break;
+      case 12:
+        screen = const EyePrescriptionScreen();
+        break;
       case 10:
         screen = const DiscountVoucherApprovalScreen();
         break;

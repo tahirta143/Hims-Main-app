@@ -55,6 +55,18 @@ class EmergencyInvestigation {
   final String type;
   final String name;
   EmergencyInvestigation({required this.type, required this.name});
+
+  factory EmergencyInvestigation.fromJson(Map<String, dynamic> json) {
+    return EmergencyInvestigation(
+      type: json['type'] ?? '',
+      name: json['name'] ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'name': name,
+  };
 }
 
 class EmergencyMedicine {
@@ -65,8 +77,28 @@ class EmergencyMedicine {
 }
 
 class EmergencyPrescription {
-  final EmergencyMedicine medicine;
-  EmergencyPrescription({required this.medicine});
+  final String name;
+  String plan;
+  String days;
+  EmergencyPrescription({
+    required this.name,
+    this.plan = '1+1+1',
+    this.days = '3',
+  });
+
+  factory EmergencyPrescription.fromJson(Map<String, dynamic> json) {
+    return EmergencyPrescription(
+      name: json['name'] ?? '',
+      plan: json['plan'] ?? '1+1+1',
+      days: json['days']?.toString() ?? '3',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'plan': plan,
+    'days': days,
+  };
 }
 
 // ── Provider ──
@@ -267,44 +299,56 @@ class EmergencyProvider extends ChangeNotifier {
   double get servicesTotalPrice =>
       _selectedServices.fold(0.0, (sum, s) => sum + s.price);
 
-  // ── Investigations ──
-  final Map<String, List<String>> investigations = const {
-    'Lab': [
-      'CBC (Complete Blood Count)',
-      'LFTs (Liver Function Test)',
-      'RFTs (Renal Function Test)',
-      'Blood Sugar (Random)',
-      'Blood Sugar (Fasting)',
-      'HbA1c',
-      'Lipid Profile',
-      'Urine Analysis',
-      'Blood Culture',
-      'PT/APTT',
-      'Serum Electrolytes',
-    ],
-    'Ultra Sound': [
-      'Abdominal Ultrasound',
-      'Pelvic Ultrasound',
-      'Thyroid Ultrasound',
-      'Cardiac Echo',
-      'Renal Ultrasound',
-    ],
-    'X-Rays': [
-      'Chest X-Ray',
-      'Spine X-Ray',
-      'Hand/Wrist X-Ray',
-      'Skull X-Ray',
-      'Pelvis X-Ray',
-      'Knee X-Ray',
-    ],
-  };
+  // ── Dynamic Investigations & Medicines lists loaded from API ──
+  List<Map<String, dynamic>> _radiologyTests = [];
+  List<Map<String, dynamic>> get radiologyTests => _radiologyTests;
 
+  List<Map<String, dynamic>> _labTests = [];
+  List<Map<String, dynamic>> get labTests => _labTests;
+
+  List<Map<String, dynamic>> _medicinesList = [];
+  List<Map<String, dynamic>> get medicinesList => _medicinesList;
+
+  bool _loadingTestsAndMeds = false;
+  bool get isLoadingTestsAndMeds => _loadingTestsAndMeds;
+
+  Future<void> loadRadiologyTests() async {
+    final res = await _emergencyApi.fetchRadiologyTests();
+    _radiologyTests = res;
+    notifyListeners();
+  }
+
+  Future<void> loadLabTests() async {
+    final res = await _emergencyApi.fetchLabTests();
+    _labTests = res;
+    notifyListeners();
+  }
+
+  Future<void> loadMedicines() async {
+    final res = await _emergencyApi.fetchMedicines();
+    _medicinesList = res;
+    notifyListeners();
+  }
+
+  Future<List<Map<String, dynamic>>> fetchBilledServices({
+    required String patientName,
+    required String from,
+    required String to,
+  }) async {
+    return await _emergencyApi.fetchBilledServices(
+      patientName: patientName,
+      from: from,
+      to: to,
+    );
+  }
+
+  // ── Selected Investigations ──
   final List<EmergencyInvestigation> _addedInvestigations = [];
   List<EmergencyInvestigation> get addedInvestigations => List.unmodifiable(_addedInvestigations);
 
   void addInvestigation(String type, String name) {
-    if (_addedInvestigations.any((i) => i.name == name)) {
-      _addedInvestigations.removeWhere((i) => i.name == name);
+    if (_addedInvestigations.any((i) => i.name.toLowerCase() == name.toLowerCase())) {
+      _addedInvestigations.removeWhere((i) => i.name.toLowerCase() == name.toLowerCase());
     } else {
       _addedInvestigations.add(EmergencyInvestigation(type: type, name: name));
     }
@@ -312,37 +356,50 @@ class EmergencyProvider extends ChangeNotifier {
   }
 
   void removeInvestigation(String name) {
-    _addedInvestigations.removeWhere((i) => i.name == name);
+    _addedInvestigations.removeWhere((i) => i.name.toLowerCase() == name.toLowerCase());
     notifyListeners();
   }
 
-  // ── Medicines ──
-  final List<EmergencyMedicine> medicinesList = const [
-    EmergencyMedicine(name: 'Paracetamol 500mg', dose: '1 tab', route: 'Oral'),
-    EmergencyMedicine(name: 'Metoclopramide', dose: '10mg', route: 'IV'),
-    EmergencyMedicine(name: 'Ondansetron', dose: '4mg', route: 'IV'),
-    EmergencyMedicine(name: 'Diclofenac', dose: '75mg', route: 'IM'),
-    EmergencyMedicine(name: 'Hydrocortisone', dose: '100mg', route: 'IV'),
-    EmergencyMedicine(name: 'Salbutamol', dose: '2.5mg', route: 'Neb'),
-    EmergencyMedicine(name: 'Ringer Lactate', dose: '1000ml', route: 'IV Drip'),
-    EmergencyMedicine(name: 'Normal Saline', dose: '500ml', route: 'IV Drip'),
-    EmergencyMedicine(name: 'Dextrose 5%', dose: '500ml', route: 'IV Drip'),
-    EmergencyMedicine(name: 'Ceftriaxone', dose: '1g', route: 'IV'),
-    EmergencyMedicine(name: 'Omeprazole', dose: '40mg', route: 'IV'),
-    EmergencyMedicine(name: 'Tramadol', dose: '50mg', route: 'IM'),
-  ];
+  void setAddedInvestigations(List<Map<String, dynamic>> list) {
+    _addedInvestigations.clear();
+    for (final item in list) {
+      _addedInvestigations.add(EmergencyInvestigation(
+        type: item['type'] ?? '',
+        name: item['name'] ?? '',
+      ));
+    }
+    notifyListeners();
+  }
 
+  // ── Selected Medicines ──
   final List<EmergencyPrescription> _prescribedMedicines = [];
   List<EmergencyPrescription> get prescribedMedicines => List.unmodifiable(_prescribedMedicines);
 
   bool isMedicinePrescribed(String name) =>
-      _prescribedMedicines.any((p) => p.medicine.name == name);
+      _prescribedMedicines.any((p) => p.name.toLowerCase() == name.toLowerCase());
 
-  void toggleMedicine(EmergencyMedicine med) {
-    if (isMedicinePrescribed(med.name)) {
-      _prescribedMedicines.removeWhere((p) => p.medicine.name == med.name);
+  void toggleMedicine(String name) {
+    if (isMedicinePrescribed(name)) {
+      _prescribedMedicines.removeWhere((p) => p.name.toLowerCase() == name.toLowerCase());
     } else {
-      _prescribedMedicines.add(EmergencyPrescription(medicine: med));
+      _prescribedMedicines.add(EmergencyPrescription(name: name));
+    }
+    notifyListeners();
+  }
+
+  void removeMedicine(String name) {
+    _prescribedMedicines.removeWhere((p) => p.name.toLowerCase() == name.toLowerCase());
+    notifyListeners();
+  }
+
+  void setPrescribedMedicines(List<Map<String, dynamic>> list) {
+    _prescribedMedicines.clear();
+    for (final item in list) {
+      _prescribedMedicines.add(EmergencyPrescription(
+        name: item['name'] ?? '',
+        plan: item['plan'] ?? '1+1+1',
+        days: item['days']?.toString() ?? '3',
+      ));
     }
     notifyListeners();
   }
@@ -365,9 +422,9 @@ class EmergencyProvider extends ChangeNotifier {
     required List<EmergencyPrescription> medicines,
   }) {
     // On discharge — remove from queue
-    if (dischargeOpt == 'After Treatment' ||
-        dischargeOpt == 'Refer to Admission' ||
-        dischargeOpt == 'Patient Expired') {
+    if (dischargeOpt == 'Discharged' ||
+        dischargeOpt == 'Expired' ||
+        dischargeOpt == 'LAMA') {
       _queue.removeWhere((p) => p.mrNo == mrNo);
     }
     notifyListeners();
@@ -381,11 +438,18 @@ class EmergencyProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Called on screen init — loads queue from real API.
+  /// Called on screen init — loads queue, services, and dynamic lists from real API.
   Future<void> refreshAll() async {
+    _loadingTestsAndMeds = true;
+    notifyListeners();
     await Future.wait([
       loadQueue(),
       loadEmergencyServices(),
+      loadRadiologyTests(),
+      loadLabTests(),
+      loadMedicines(),
     ]);
+    _loadingTestsAndMeds = false;
+    notifyListeners();
   }
 }

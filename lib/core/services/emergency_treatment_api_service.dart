@@ -219,6 +219,117 @@ class EmergencyTreatmentApiService {
           success: false, message: 'Network error: ${e.toString()}');
     }
   }
+
+  // ─── GET /radiology-tests ───────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> fetchRadiologyTests() async {
+    try {
+      final headers = await _authHeaders();
+      final response = await http
+          .get(Uri.parse('${GlobalApi.baseUrl}/radiology-tests'), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic> && data['success'] == true) {
+          final list = data['data'];
+          if (list is List) {
+            return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          }
+        } else if (data is List) {
+          return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ─── GET /lab/tests ──────────────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> fetchLabTests() async {
+    try {
+      final headers = await _authHeaders();
+      final response = await http
+          .get(Uri.parse('${GlobalApi.baseUrl}/lab/tests'), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic> && data['success'] == true) {
+          final list = data['data'];
+          if (list is List) {
+            return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          }
+        } else if (data is List) {
+          return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ─── GET /medicines ──────────────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> fetchMedicines() async {
+    try {
+      final headers = await _authHeaders();
+      final response = await http
+          .get(Uri.parse('${GlobalApi.baseUrl}/medicines'), headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic> && data['success'] == true) {
+          final list = data['data'];
+          if (list is List) {
+            return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          }
+        } else if (data is List) {
+          return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ─── GET /emergency-billing ──────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> fetchBilledServices({
+    required String patientName,
+    required String from,
+    required String to,
+  }) async {
+    try {
+      final headers = await _authHeaders();
+      final queryParameters = {
+        'patient_name': patientName,
+        'from': from,
+        'to': to,
+      };
+      final uri = Uri.parse('${GlobalApi.baseUrl}/emergency-billing')
+          .replace(queryParameters: queryParameters);
+      final response = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic> && data['success'] == true) {
+          final list = data['data'];
+          if (list is List) {
+            return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          }
+        } else if (data is List) {
+          return data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
 }
 
 // ─── Result classes ───────────────────────────────────────────────────────────

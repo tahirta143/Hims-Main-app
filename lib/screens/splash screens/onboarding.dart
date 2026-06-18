@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
 import '../auth/login.dart';
 
@@ -24,7 +24,7 @@ class OnboardingData {
 
 const List<OnboardingData> onboardingPages = [
   OnboardingData(
-    title: 'Waseela\nDiabesity',
+    title: 'HIMS',
     subtitle: 'Providing world-class diabesity care with advanced technology and expert doctors.',
     imagePath: 'assets/images/doctor2.png',
   ),
@@ -146,11 +146,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                 color: Colors.white.withOpacity(0.2),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Image.asset("assets/images/Waseelalogo.png")
+                              child: Image.asset("assets/images/logo.png")
                             ),
                             const SizedBox(width: 10),
                             const Text(
-                              'Waseela Diabesity',
+                              'HIMS',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 15,

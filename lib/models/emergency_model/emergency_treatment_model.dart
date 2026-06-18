@@ -26,6 +26,10 @@ class EmergencyTreatmentApiModel {
   final List<String> selectedServices;
   final String? createdAt;
   final String? updatedAt;
+  final bool isBilled;
+  final double servicesTotal;
+  final List<Map<String, dynamic>> investigations;
+  final List<Map<String, dynamic>> medicines;
 
   EmergencyTreatmentApiModel({
     required this.srlNo,
@@ -53,6 +57,10 @@ class EmergencyTreatmentApiModel {
     required this.selectedServices,
     this.createdAt,
     this.updatedAt,
+    this.isBilled = false,
+    this.servicesTotal = 0.0,
+    this.investigations = const [],
+    this.medicines = const [],
   });
 
   factory EmergencyTreatmentApiModel.fromJson(Map<String, dynamic> json) {
@@ -74,6 +82,36 @@ class EmergencyTreatmentApiModel {
         }
       } else if (rawServices is List) {
         parsedServices = rawServices.map((e) => e.toString()).toList();
+      }
+    }
+
+    List<Map<String, dynamic>> parsedInvs = [];
+    final rawInvs = json['investigations'];
+    if (rawInvs != null) {
+      if (rawInvs is String && rawInvs.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(rawInvs);
+          if (decoded is List) {
+            parsedInvs = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          }
+        } catch (_) {}
+      } else if (rawInvs is List) {
+        parsedInvs = rawInvs.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+    }
+
+    List<Map<String, dynamic>> parsedMeds = [];
+    final rawMeds = json['medicines'];
+    if (rawMeds != null) {
+      if (rawMeds is String && rawMeds.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(rawMeds);
+          if (decoded is List) {
+            parsedMeds = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          }
+        } catch (_) {}
+      } else if (rawMeds is List) {
+        parsedMeds = rawMeds.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
     }
 
@@ -104,6 +142,10 @@ class EmergencyTreatmentApiModel {
       selectedServices: parsedServices,
       createdAt: json['created_at']?.toString(),
       updatedAt: json['updated_at']?.toString(),
+      isBilled: json['is_billed'] == true || json['is_billed'] == 1,
+      servicesTotal: double.tryParse(json['services_total']?.toString() ?? '') ?? 0.0,
+      investigations: parsedInvs,
+      medicines: parsedMeds,
     );
   }
 
@@ -130,6 +172,10 @@ class EmergencyTreatmentApiModel {
     'outcome': outcome,
     'discharge_patient': dischargePatient,
     'selected_services': jsonEncode(selectedServices),
+    'is_billed': isBilled,
+    'services_total': servicesTotal,
+    'investigations': jsonEncode(investigations),
+    'medicines': jsonEncode(medicines),
   };
 }
 

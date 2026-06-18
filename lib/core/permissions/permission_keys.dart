@@ -1,6 +1,6 @@
 // All permission keys matching backend seed data.
 // Format: MODULE_CODE.RESOURCE_CODE.ACTION_CODE
-// Aligned with React WaseelaHIMS-F App.jsx permissions.
+// Aligned with React HimsHIMS-F App.jsx permissions.
 class Perm {
   // ─── OPD Module ───────────────────────────────────────────────────────────
   static const opdPatientRead    = 'OPD.PATIENT.READ';

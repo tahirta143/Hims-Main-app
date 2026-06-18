@@ -83,7 +83,7 @@ class _HomeBodyState extends State<_HomeBody> {
 
     final List<_NavCard> allCards = [
       const _NavCard(label: "Dashboard", desc: "Analytics & reports", icon: Icons.bar_chart_rounded, drawerIndex: 0, permission: Perm.appDashboardRead),
-      // const _NavCard(label: "Emergency", desc: "Treatment & queue", icon: Icons.error_outline_rounded, drawerIndex: 5, permission: Perm.emergencyRead),
+      const _NavCard(label: "Emergency", desc: "Treatment & queue", icon: Icons.error_outline_rounded, drawerIndex: 5, permission: Perm.emergencyRead),
       const _NavCard(label: "OPD Receipt", desc: "Create new receipts", icon: Icons.receipt_rounded, drawerIndex: 3, permission: Perm.opdReceiptRead),
       const _NavCard(label: "Patient Records", desc: "View & manage records", icon: Icons.description_outlined, drawerIndex: 4, permission: Perm.opdPatientRead),
       const _NavCard(label: "MR Details", desc: "Patient master records", icon: Icons.person_outline_rounded, drawerIndex: 8, permission: Perm.mrRead),
@@ -93,13 +93,13 @@ class _HomeBodyState extends State<_HomeBody> {
       const _NavCard(label: "Vitals", desc: "Track patient vitals", icon: Icons.monitor_heart_outlined, drawerIndex: 13, permission: Perm.vitalsRead),
       const _NavCard(label: "Lab Values", desc: "Track laboratory values", icon: Icons.biotech_outlined, drawerIndex: 14, permission: Perm.labValuesRead),
       const _NavCard(label: "Nutritionist", desc: "Diet & nutrition plans", icon: Icons.restaurant_menu_outlined, drawerIndex: 15, permission: Perm.nutritionistRead),
-      // const _NavCard(
-      //   label: "Eye Prescription",
-      //   desc: "eye workflow",
-      //   icon: Icons.remove_red_eye_outlined,
-      //   drawerIndex: 12,
-      //   permission: Perm.eyeRecordRead,
-      // ),
+      const _NavCard(
+        label: "Eye Prescription",
+        desc: "eye workflow",
+        icon: Icons.remove_red_eye_outlined,
+        drawerIndex: 12,
+        permission: Perm.eyeRecordRead,
+      ),
       const _NavCard(label: "Fundus Exam", desc: "Fundus eye examination", icon: Icons.visibility_outlined, drawerIndex: 16, permission: Perm.fundusRead),
       const _NavCard(label: "Consultant Pay", desc: "Doctor payouts", icon: Icons.attach_money_rounded, drawerIndex: 6, permission: Perm.consultantRead),
       const _NavCard(label: "Add Expenses", desc: "Record expenses", icon: Icons.credit_card_rounded, drawerIndex: 2, permission: Perm.expenseRead),
@@ -767,13 +767,13 @@ class _ModuleCard extends StatelessWidget {
   Widget _getScreen(int index) {
     switch (index) {
       case 0: return const dash.DashboardScreen();
-      // case 5: return const EmergencyTreatmentScreen();
+      case 5: return const EmergencyTreatmentScreen();
       case 3: return const OpdReceiptScreen();
       case 4: return const OpdRecordsScreen();
       case 8: return const MrDetailsScreen();
       case 1: return const ConsultationScreen();
       case 9: return const PrescriptionScreen();
-      // case 12: return const EyePrescriptionScreen();
+      case 12: return const EyePrescriptionScreen();
       case 13: return const VitalsScreen();
       case 22: return const MrDataViewScreen();
       case 14: return const LabValuesScreen();

@@ -70,7 +70,7 @@ class MyApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'Waseela Diabesity',
+        title: 'HIMS',
         scaffoldMessengerKey: snackbarKey,
         debugShowCheckedModeBanner: false,
         theme: ThemeData(

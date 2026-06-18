@@ -3,13 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:animate_do/animate_do.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../../custum widgets/drawer/base_scaffold.dart';
 import '../../custum widgets/search/global_search_overlay.dart';
 import '../../providers/emergency_treatment_provider/emergency_provider.dart';
 import '../../providers/opd/opd_reciepts/opd_reciepts.dart';
 import '../../custum widgets/animations/animations.dart';
-import '../../global/global_api.dart';
 
 class EmergencyTreatmentScreen extends StatefulWidget {
   final bool useScaffold;
@@ -58,18 +60,23 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
   final _complainCtrl = TextEditingController();
   final _notesCtrl    = TextEditingController();
   final _mrFocusNode   = FocusNode();
+  final _invSearchCtrl = TextEditingController();
+  final _medSearchCtrl = TextEditingController();
 
   bool _patientFound = false;
   int? _existingRecordId; // set when existing treatment loaded from API
 
   late TabController _rightTab;
-  String _invType = 'X-Rays';
+  String _invType = 'Lab';
 
-  String _disOpt     = 'After Treatment';
+  String _disOpt     = 'Discharged';
   bool   _discharged = false;
 
   // ── Dropdown service state ──
   EmergencyService? _selectedDropdownService;
+
+  // ── Hourly service time tracking: serviceId -> {startTime, endTime} ──
+  final Map<String, Map<String, DateTime>> _hourlyServiceTimes = {};
 
   @override
   void initState() {
@@ -103,6 +110,7 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
       _mrCtrl,_nameCtrl,_ageCtrl,_genderCtrl,_phoneCtrl,_addressCtrl,
       _moCtrl,_bedCtrl,_admCtrl,_pulseCtrl,_tempCtrl,_bpCtrl,
       _respCtrl,_spo2Ctrl,_weightCtrl,_heightCtrl,_complainCtrl,_notesCtrl,
+      _invSearchCtrl, _medSearchCtrl,
     ]) c.dispose();
     _mrFocusNode.dispose();
     super.dispose();
@@ -205,26 +213,24 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
         }
       }
     }
+    // Auto-populate investigations and medicines from the record
+    prov.setAddedInvestigations(rec.investigations);
+    prov.setPrescribedMedicines(rec.medicines);
   }
 
   String _mapOutcome(String? outcome) {
+    if (outcome == null || outcome.isEmpty) return 'Discharged';
     switch (outcome) {
-      case 'after_treatment':        return 'After Treatment';
-      case 'refer_admission':        return 'Refer to Admission';
-      case 'refer_other_hospital':   return 'Refer to Other Hospital';
-      case 'patient_expired':        return 'Patient Expired';
-      default: return _disOpt;
+      case 'after_treatment':        return 'Discharged';
+      case 'refer_admission':        return 'Admitted to Ward';
+      case 'refer_other_hospital':   return 'Referred';
+      case 'patient_expired':        return 'Expired';
+      default: return outcome;
     }
   }
 
   String _outcomeKey(String label) {
-    switch (label) {
-      case 'After Treatment':        return 'after_treatment';
-      case 'Refer to Admission':     return 'refer_admission';
-      case 'Refer to Other Hospital':return 'refer_other_hospital';
-      case 'Patient Expired':        return 'patient_expired';
-      default: return 'after_treatment';
-    }
+    return label;
   }
 
   void _fillPatient(EmergencyPatient p) {
@@ -284,6 +290,7 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
       _disOpt = 'After Treatment';
       _discharged = false;
       _selectedDropdownService = null;
+      _hourlyServiceTimes.clear();
     });
     prov.clearAll();
   }
@@ -332,9 +339,144 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
     }
   }
 
+  Future<void> _printDischargeSlip(
+    EmergencyProvider prov,
+    Map<String, dynamic> payload,
+    List<Map<String, dynamic>> billedServices,
+    double billedTotal,
+  ) async {
+    final doc = pw.Document();
+    final printDateTime = DateTime.now().toString().substring(0, 16);
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) {
+          return pw.Padding(
+            padding: const pw.EdgeInsets.all(24),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Center(
+                  child: pw.Text(
+                    'HIMS HOSPITAL',
+                    style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold),
+                  ),
+                ),
+                pw.Center(
+                  child: pw.Text(
+                    'EMERGENCY DISCHARGE SLIP',
+                    style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline),
+                  ),
+                ),
+                pw.SizedBox(height: 20),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('MR #: ${payload['patient_mr_number'] ?? ''}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                        pw.Text('Patient: ${payload['patient_name'] ?? ''}'),
+                        pw.Text('Age/Gender: ${payload['patient_age'] ?? ''} / ${payload['patient_gender'] ?? ''}'),
+                      ],
+                    ),
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('Date/Time: $printDateTime'),
+                        pw.Text('Bed: ${payload['bed'] ?? ''}'),
+                        pw.Text('Outcome: ${payload['outcome'] ?? ''}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                      ],
+                    ),
+                  ],
+                ),
+                pw.Divider(),
+                pw.SizedBox(height: 10),
+                pw.Text('VITALS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text('B.P: ${payload['bp'] ?? ''}   Temp: ${payload['temp'] ?? ''}   Pulse: ${payload['pulse'] ?? ''}   SPO2: ${payload['spo2'] ?? ''}   Weight: ${payload['weight'] ?? ''}   Height: ${payload['height'] ?? ''}'),
+                pw.SizedBox(height: 10),
+                pw.Text('CHIEF COMPLAINTS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text(payload['complaint'] ?? '—'),
+                pw.SizedBox(height: 10),
+                pw.Text('MO NOTES', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text(payload['mo_notes'] ?? '—'),
+                pw.SizedBox(height: 15),
+                if (billedServices.isNotEmpty) ...[
+                  pw.Text('SERVICES & BILLING', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  pw.SizedBox(height: 5),
+                  pw.Table(
+                    border: pw.TableBorder.all(color: PdfColors.grey300),
+                    children: [
+                      pw.TableRow(
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Service Head', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Amount', style: pw.TextStyle(fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.right)),
+                        ],
+                      ),
+                      ...billedServices.map((item) => pw.TableRow(
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(item['service_name'] ?? '')),
+                          pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Rs ${(item['amount'] as double).toStringAsFixed(0)}', textAlign: pw.TextAlign.right)),
+                        ],
+                      )),
+                      pw.TableRow(
+                        children: [
+                          pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('TOTAL', style: pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+                          pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('Rs ${billedTotal.toStringAsFixed(0)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.right)),
+                        ],
+                      ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 15),
+                ],
+                if (prov.addedInvestigations.isNotEmpty) ...[
+                  pw.Text('PRESCRIBED INVESTIGATIONS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  pw.SizedBox(height: 5),
+                  ...prov.addedInvestigations.map((inv) => pw.Bullet(text: '[${inv.type}] ${inv.name}')),
+                  pw.SizedBox(height: 15),
+                ],
+                if (prov.prescribedMedicines.isNotEmpty) ...[
+                  pw.Text('DISCHARGE RX (MEDICINES)', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                  pw.SizedBox(height: 5),
+                  ...prov.prescribedMedicines.map((med) => pw.Bullet(text: '${med.name}  (${med.plan} for ${med.days} days)')),
+                  pw.SizedBox(height: 15),
+                ],
+                pw.Spacer(),
+                pw.Divider(),
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text('Prepared By: ${payload['mo'] ?? ''}'),
+                    pw.Text('Authorized Signature: _____________________'),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => doc.save(),
+      name: 'discharge_slip_${payload['patient_mr_number']}.pdf',
+    );
+  }
+
   Future<void> _saveAndPrint(EmergencyProvider prov) async {
     if (_nameCtrl.text.trim().isEmpty) {
       _snack('Please fill patient name', err: true);
+      return;
+    }
+
+    final servicesTotal = prov.servicesTotalPrice;
+    final isBilled = (prov.currentRecord?.isBilled ?? false) &&
+        servicesTotal > 0 &&
+        servicesTotal == (prov.currentRecord?.servicesTotal ?? 0);
+
+    if (_discharged && !isBilled && servicesTotal > 0) {
+      _snack('Cannot discharge patient with pending bills. Please pay the bill at the OPD Receipt counter to proceed.', err: true);
       return;
     }
 
@@ -358,8 +500,11 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
       'mo_notes':      _notesCtrl.text,
       'outcome':       _outcomeKey(_disOpt),
       'discharge_patient': _discharged,
-      'selected_services':
-          prov.selectedServices.map((s) => s.name).toList(),
+      'selected_services': prov.selectedServices.map((s) => s.name).toList(),
+      'services_total': servicesTotal,
+      'is_billed': isBilled,
+      'investigations': prov.addedInvestigations.map((i) => i.toJson()).toList(),
+      'medicines': prov.prescribedMedicines.map((m) => m.toJson()).toList(),
     };
 
     bool apiSuccess;
@@ -395,7 +540,57 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
       medicines: prov.prescribedMedicines.toList(),
     );
 
-    _snack('Record saved & printing...');
+    _snack('Record saved successfully');
+
+    // Fetch billed services if discharged
+    List<Map<String, dynamic>> printServiceRows = prov.selectedServices.map((s) => {'service_name': s.name, 'amount': s.price}).toList();
+    double printServicesTotal = prov.servicesTotalPrice;
+    
+    if (_discharged) {
+      try {
+        String mysqlFrom = '';
+        try {
+          final parts = _admCtrl.text.split('  ');
+          if (parts.length >= 2) {
+            final dateParts = parts[0].split('/');
+            final timeParts = parts[1].split(':');
+            if (dateParts.length == 3 && timeParts.length >= 2) {
+              final parsedDt = DateTime(
+                int.parse(dateParts[2]),
+                int.parse(dateParts[1]),
+                int.parse(dateParts[0]),
+                int.parse(timeParts[0]),
+                int.parse(timeParts[1]),
+              );
+              mysqlFrom = parsedDt.toString().substring(0, 19);
+            }
+          }
+        } catch (_) {}
+        
+        if (mysqlFrom.isEmpty) {
+          mysqlFrom = DateTime.now().subtract(const Duration(hours: 1)).toString().substring(0, 19);
+        }
+        
+        final mysqlTo = DateTime.now().toString().substring(0, 19);
+        
+        final billed = await prov.fetchBilledServices(
+          patientName: _nameCtrl.text,
+          from: mysqlFrom,
+          to: mysqlTo,
+        );
+        if (billed.isNotEmpty) {
+          printServiceRows = billed.map((b) => {
+            'service_name': b['service_head']?.toString() ?? '',
+            'amount': double.tryParse(b['amount']?.toString() ?? '0') ?? 0.0,
+          }).toList();
+          printServicesTotal = printServiceRows.fold(0.0, (sum, item) => sum + (item['amount'] as double));
+        }
+      } catch (_) {}
+    }
+
+    // Call print
+    await _printDischargeSlip(prov, payload, printServiceRows, printServicesTotal);
+
     _clearAll(prov);
     // Refresh queue after save
     prov.refreshAll();
@@ -409,6 +604,456 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_sw * 0.03)),
       margin: EdgeInsets.all(_pad),
     ));
+  }
+
+  // ════════════════════════════════════════
+  //  HOURLY SERVICE TIME POPUP
+  // ════════════════════════════════════════
+
+  /// Shows a popup dialog to set start and end time for an hourly service.
+  /// Returns [true] if user confirmed, [false]/[null] otherwise.
+  Future<bool?> _showHourlyTimePopup(EmergencyService svc,
+      {bool isEdit = false}) async {
+    // Pre-fill start time from admitted since or current time
+    DateTime startTime;
+    DateTime endTime;
+
+    final existing = _hourlyServiceTimes[svc.id];
+    if (existing != null) {
+      startTime = existing['start']!;
+      endTime = existing['end']!;
+    } else {
+      // Try to parse admitted since
+      try {
+        if (_admCtrl.text.isNotEmpty &&
+            _admCtrl.text != 'Auto-filled from Emergency Receipt') {
+          final parts = _admCtrl.text.split('  ');
+          if (parts.length >= 2) {
+            final dateParts = parts[0].split('/');
+            final timeParts = parts[1].split(':');
+            if (dateParts.length == 3 && timeParts.length >= 2) {
+              startTime = DateTime(
+                int.parse(dateParts[2]),
+                int.parse(dateParts[1]),
+                int.parse(dateParts[0]),
+                int.parse(timeParts[0]),
+                int.parse(timeParts[1]),
+              );
+            } else {
+              startTime = DateTime.now();
+            }
+          } else {
+            startTime = DateTime.now();
+          }
+        } else {
+          startTime = DateTime.now();
+        }
+      } catch (_) {
+        startTime = DateTime.now();
+      }
+      endTime = DateTime.now();
+    }
+
+    // Local state inside the dialog
+    DateTime tempStart = startTime;
+    DateTime tempEnd = endTime;
+
+    String formatDt(DateTime dt) => _fmtDt(dt);
+
+    Future<void> pickDateTime(
+        BuildContext ctx, bool isStart, StateSetter setDlgState) async {
+      final now = DateTime.now();
+      final picked = await showDatePicker(
+        context: ctx,
+        initialDate: isStart ? tempStart : tempEnd,
+        firstDate: DateTime(now.year - 1),
+        lastDate: DateTime(now.year + 1),
+        builder: (ctx, child) => Theme(
+          data: ThemeData.light().copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFFF59E0B),
+              onPrimary: Colors.white,
+              surface: Colors.white,
+            ),
+          ),
+          child: child!,
+        ),
+      );
+      if (picked == null) return;
+      final timePicked = await showTimePicker(
+        context: ctx,
+        initialTime: TimeOfDay.fromDateTime(isStart ? tempStart : tempEnd),
+        builder: (ctx, child) => Theme(
+          data: ThemeData.light().copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFFF59E0B),
+              onPrimary: Colors.white,
+            ),
+          ),
+          child: child!,
+        ),
+      );
+      if (timePicked == null) return;
+      final result = DateTime(picked.year, picked.month, picked.day,
+          timePicked.hour, timePicked.minute);
+      setDlgState(() {
+        if (isStart) {
+          tempStart = result;
+        } else {
+          tempEnd = result;
+        }
+      });
+    }
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(24),
+                topRight: Radius.circular(24),
+              ),
+            ),
+            padding: EdgeInsets.only(
+              left: _sw * 0.05,
+              right: _sw * 0.05,
+              top: _sh * 0.025,
+              bottom: _sh * 0.035 + MediaQuery.of(ctx).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Drag handle ──
+                Center(
+                  child: Container(
+                    width: _sw * 0.1,
+                    height: 4,
+                    margin: EdgeInsets.only(bottom: _sh * 0.018),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+
+                // ── Header ──
+                Row(children: [
+                  Container(
+                    padding: EdgeInsets.all(_sw * 0.022),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.access_time_rounded,
+                        color: Colors.amber.shade700, size: _sw * 0.055),
+                  ),
+                  SizedBox(width: _sw * 0.03),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Hourly Service',
+                          style: TextStyle(
+                              fontSize: _fsXS,
+                              color: Colors.amber.shade700,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.4),
+                        ),
+                        Text(
+                          svc.name,
+                          style: TextStyle(
+                              fontSize: _fsL,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: _sw * 0.025, vertical: _sh * 0.005),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      borderRadius: BorderRadius.circular(_sw * 0.03),
+                      border: Border.all(color: Colors.amber.shade200),
+                    ),
+                    child: Text(
+                      'PKR ${svc.price.toStringAsFixed(0)}/hr',
+                      style: TextStyle(
+                          fontSize: _fsXS,
+                          color: Colors.amber.shade800,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ]),
+
+                SizedBox(height: _sh * 0.025),
+                Divider(color: Colors.grey.shade100),
+                SizedBox(height: _sh * 0.018),
+
+                // ── START TIME ──
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Start Time',
+                        style: TextStyle(
+                            fontSize: _fsS,
+                            color: Colors.black54,
+                            fontWeight: FontWeight.w600)),
+                    TextButton.icon(
+                      onPressed: () {
+                        setDlgState(() {
+                          tempStart = DateTime.now();
+                        });
+                      },
+                      icon: const Icon(Icons.play_arrow_rounded, color: Colors.green, size: 16),
+                      label: const Text('Start Now', style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: Colors.green.withOpacity(0.1),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: _sh * 0.008),
+                GestureDetector(
+                  onTap: () => pickDateTime(ctx, true, setDlgState),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: _sw * 0.04, vertical: _sh * 0.016),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(_sw * 0.03),
+                      border: Border.all(color: Colors.green.shade200, width: 1.5),
+                    ),
+                    child: Row(children: [
+                      Icon(Icons.play_circle_outline_rounded,
+                          color: Colors.green.shade600, size: _sw * 0.055),
+                      SizedBox(width: _sw * 0.03),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Start',
+                                style: TextStyle(
+                                    fontSize: _fsXS,
+                                    color: Colors.green.shade600,
+                                    fontWeight: FontWeight.w600)),
+                            Text(
+                              formatDt(tempStart),
+                              style: TextStyle(
+                                  fontSize: _fs,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                  fontFamily: 'monospace'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.edit_calendar_rounded,
+                          color: Colors.green.shade400, size: _sw * 0.04),
+                    ]),
+                  ),
+                ),
+
+                SizedBox(height: _sh * 0.015),
+
+                // ── END TIME ──
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('End Time',
+                        style: TextStyle(
+                            fontSize: _fsS,
+                            color: Colors.black54,
+                            fontWeight: FontWeight.w600)),
+                    TextButton.icon(
+                      onPressed: () {
+                        setDlgState(() {
+                          tempEnd = DateTime.now();
+                        });
+                      },
+                      icon: const Icon(Icons.stop_rounded, color: Colors.red, size: 16),
+                      label: const Text('End Now', style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: Colors.red.withOpacity(0.1),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: _sh * 0.008),
+                GestureDetector(
+                  onTap: () => pickDateTime(ctx, false, setDlgState),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: _sw * 0.04, vertical: _sh * 0.016),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(_sw * 0.03),
+                      border: Border.all(color: Colors.red.shade200, width: 1.5),
+                    ),
+                    child: Row(children: [
+                      Icon(Icons.stop_circle_outlined,
+                          color: Colors.red.shade500, size: _sw * 0.055),
+                      SizedBox(width: _sw * 0.03),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('End',
+                                style: TextStyle(
+                                    fontSize: _fsXS,
+                                    color: Colors.red.shade600,
+                                    fontWeight: FontWeight.w600)),
+                            Text(
+                              formatDt(tempEnd),
+                              style: TextStyle(
+                                  fontSize: _fs,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                  fontFamily: 'monospace'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.edit_calendar_rounded,
+                          color: Colors.red.shade300, size: _sw * 0.04),
+                    ]),
+                  ),
+                ),
+
+                SizedBox(height: _sh * 0.012),
+
+                // ── Duration indicator ──
+                Builder(builder: (_) {
+                  final diff = tempEnd.difference(tempStart);
+                  final isValid = diff.inMinutes > 0;
+                  final hrs = diff.inHours;
+                  final mins = diff.inMinutes.remainder(60);
+                  return Container(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: _sw * 0.04, vertical: _sh * 0.009),
+                    decoration: BoxDecoration(
+                      color: isValid
+                          ? Colors.amber.shade50
+                          : Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(_sw * 0.025),
+                      border: Border.all(
+                          color: isValid
+                              ? Colors.amber.shade200
+                              : Colors.red.shade200),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          isValid ? Icons.timer_rounded : Icons.warning_amber_rounded,
+                          color: isValid ? Colors.amber.shade700 : Colors.red.shade600,
+                          size: _sw * 0.04,
+                        ),
+                        SizedBox(width: _sw * 0.02),
+                        Text(
+                          isValid
+                              ? 'Duration: ${hrs > 0 ? "${hrs}h " : ""}${mins}m'
+                              : 'End time must be after start time',
+                          style: TextStyle(
+                            fontSize: _fsS,
+                            fontWeight: FontWeight.bold,
+                            color: isValid
+                                ? Colors.amber.shade800
+                                : Colors.red.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+
+                SizedBox(height: _sh * 0.022),
+
+                // ── Action Buttons ──
+                Row(children: [
+                  // Cancel button
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.black54,
+                        side: BorderSide(color: Colors.grey.shade300),
+                        padding:
+                            EdgeInsets.symmetric(vertical: _sh * 0.016),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(_sw * 0.03)),
+                      ),
+                      child: Text('Cancel',
+                          style: TextStyle(
+                              fontSize: _fs, fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  SizedBox(width: _sw * 0.03),
+                  // Confirm button
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        final diff = tempEnd.difference(tempStart);
+                        if (diff.inMinutes <= 0) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: const Text('End time must be after start time'),
+                            backgroundColor: Colors.red.shade400,
+                            behavior: SnackBarBehavior.floating,
+                          ));
+                          return;
+                        }
+                        setState(() {
+                          _hourlyServiceTimes[svc.id] = {
+                            'start': tempStart,
+                            'end': tempEnd,
+                          };
+                        });
+                        Navigator.pop(ctx, true);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber.shade600,
+                        foregroundColor: Colors.white,
+                        padding:
+                            EdgeInsets.symmetric(vertical: _sh * 0.016),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(_sw * 0.03)),
+                      ),
+                      icon: Icon(Icons.check_circle_rounded,
+                          size: _sw * 0.045),
+                      label: Text(
+                        isEdit ? 'Update Time' : 'Set Time & Add',
+                        style: TextStyle(
+                            fontSize: _fs, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ]),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    return confirmed;
   }
 
   // ════════════════════════════════════════
@@ -609,7 +1254,7 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
           // 👥 QUEUE BUTTON (MOBILE)
           if (!_wide) ...[
             GestureDetector(
-              onTap: () => _openSheet(prov),
+              onTap: () => _openPopup(prov),
               child: Container(
                 margin: EdgeInsets.only(right: _sw * 0.02),
                 padding: EdgeInsets.all(_sw * 0.02),
@@ -839,46 +1484,57 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
               border: Border.all(color: danger.withOpacity(0.35)),
             ),
             child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                isExpanded: true,
-                hint: Text('-- Select Emergency Patient --',
-                    style: TextStyle(color: Colors.red.shade400, fontSize: _fs)),
-                value: _patientFound ? _mrCtrl.text : null,
-                style: TextStyle(fontSize: _fs, color: Colors.black87),
-                icon: Icon(Icons.keyboard_arrow_down_rounded, color: danger, size: _sw * 0.048),
-                dropdownColor: Colors.white,
-                items: p.queue.map((patient) {
-                  final diff = DateTime.now().difference(patient.admittedSince);
-                  final since = diff.inMinutes < 60
-                      ? '${diff.inMinutes}m ago'
-                      : '${diff.inHours}h ${diff.inMinutes.remainder(60)}m';
-                  return DropdownMenuItem<String>(
-                    value: patient.mrNo,
-                    child: Row(children: [
-                      Container(
-                        padding: EdgeInsets.all(_sw * 0.015),
-                        decoration: BoxDecoration(
-                          color: danger.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(Icons.emergency_rounded, color: danger, size: _sw * 0.032),
-                      ),
-                      SizedBox(width: _sw * 0.018),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(patient.name,
-                            style: TextStyle(fontSize: _fs, fontWeight: FontWeight.w700, color: Colors.black87),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                        Text('MR: ${patient.mrNo}  •  $since  •  Age: ${patient.age}',
-                            style: TextStyle(fontSize: _fsXS, color: Colors.grey.shade500)),
-                      ])),
-                    ]),
+              child: Builder(
+                builder: (context) {
+                  final seen = <String>{};
+                  final uniqueQueue = p.queue.where((patient) => seen.add(patient.mrNo)).toList();
+                  final hasMr = uniqueQueue.any((patient) => patient.mrNo == _mrCtrl.text);
+                  
+                  return DropdownButton<String>(
+                    isExpanded: true,
+                    hint: Text('-- Select Emergency Patient --',
+                        style: TextStyle(color: Colors.red.shade400, fontSize: _fs)),
+                    value: _patientFound && hasMr ? _mrCtrl.text : null,
+                    style: TextStyle(fontSize: _fs, color: Colors.black87),
+                    icon: Icon(Icons.keyboard_arrow_down_rounded, color: danger, size: _sw * 0.048),
+                    dropdownColor: Colors.white,
+                    items: uniqueQueue.map((patient) {
+                      final diff = DateTime.now().difference(patient.admittedSince);
+                      final since = diff.inMinutes < 60
+                          ? '${diff.inMinutes}m ago'
+                          : '${diff.inHours}h ${diff.inMinutes.remainder(60)}m';
+                      return DropdownMenuItem<String>(
+                        value: patient.mrNo,
+                        child: Row(children: [
+                          Container(
+                            padding: EdgeInsets.all(_sw * 0.015),
+                            decoration: BoxDecoration(
+                              color: danger.withOpacity(0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.emergency_rounded, color: danger, size: _sw * 0.032),
+                          ),
+                          SizedBox(width: _sw * 0.018),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(patient.name,
+                                style: TextStyle(fontSize: _fs, fontWeight: FontWeight.w700, color: Colors.black87),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                            Text('MR: ${patient.mrNo}  •  $since  •  Age: ${patient.age}',
+                                style: TextStyle(fontSize: _fsXS, color: Colors.grey.shade500)),
+                          ])),
+                        ]),
+                      );
+                    }).toList(),
+                    onChanged: (mrNo) {
+                      if (mrNo == null) return;
+                      final patient = p.lookupPatient(mrNo);
+                      if (patient != null) {
+                        _fillPatient(patient);
+                        _loadExistingTreatment(patient.mrNo, p);
+                      }
+                    },
                   );
-                }).toList(),
-                onChanged: (mrNo) {
-                  if (mrNo == null) return;
-                  final patient = p.lookupPatient(mrNo);
-                  if (patient != null) _fillPatient(patient);
-                },
+                }
               ),
             ),
           ),
@@ -1122,49 +1778,73 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
             Wrap(
               spacing: _sw * 0.015,
               runSpacing: _sh * 0.006,
-              children: p.selectedServices.map((svc) => Container(
-                padding: EdgeInsets.symmetric(horizontal: _sw * 0.02, vertical: _sh * 0.005),
-                decoration: BoxDecoration(
-                  color: svc.color.withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(_sw * 0.015),
-                  border: Border.all(color: svc.color.withOpacity(0.25)),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    width: _sw * 0.035,
-                    height: _sw * 0.035,
-                    margin: EdgeInsets.only(right: _sw * 0.015),
-                    decoration: BoxDecoration(
-                      color: svc.color.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: Builder(
-                        builder: (context) {
-                          if (svc.imageUrl != null) {
-                            return CachedNetworkImage(
-                              imageUrl: svc.imageUrl!,
-                              fit: BoxFit.cover,
-                              placeholder: (context, _) => Icon(svc.icon, color: svc.color, size: _sw * 0.02),
-                              errorWidget: (context, _, __) => Icon(svc.icon, color: svc.color, size: _sw * 0.02),
-                            );
-                          }
-                          return Icon(svc.icon, color: svc.color, size: _sw * 0.025);
-                        },
+              children: p.selectedServices.map((svc) {
+                final isHourly = ['bed', 'nursing', 'hourly'].any((k) => svc.name.toLowerCase().contains(k));
+                final startTime = _admCtrl.text.isEmpty || _admCtrl.text == 'Auto-filled from Emergency Receipt'
+                    ? 'N/A'
+                    : _admCtrl.text;
+                final endTime = _fmtDt(DateTime.now());
+                final tooltipMsg = 'Hourly Service\nStart Time: $startTime\nEnd Time: $endTime';
+
+                final chip = Container(
+                  padding: EdgeInsets.symmetric(horizontal: _sw * 0.02, vertical: _sh * 0.005),
+                  decoration: BoxDecoration(
+                    color: svc.color.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(_sw * 0.015),
+                    border: Border.all(color: svc.color.withOpacity(0.25)),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Container(
+                      width: _sw * 0.035,
+                      height: _sw * 0.035,
+                      margin: EdgeInsets.only(right: _sw * 0.015),
+                      decoration: BoxDecoration(
+                        color: svc.color.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: Builder(
+                          builder: (context) {
+                            if (svc.imageUrl != null) {
+                              return CachedNetworkImage(
+                                imageUrl: svc.imageUrl!,
+                                fit: BoxFit.cover,
+                                placeholder: (context, _) => Icon(svc.icon, color: svc.color, size: _sw * 0.02),
+                                errorWidget: (context, _, __) => Icon(svc.icon, color: svc.color, size: _sw * 0.02),
+                              );
+                            }
+                            return Icon(svc.icon, color: svc.color, size: _sw * 0.025);
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                  Text(svc.name,
-                      style: TextStyle(fontSize: _fsXS, fontWeight: FontWeight.bold,
-                          color: Colors.black87)),
-                  SizedBox(width: _sw * 0.01),
-                  GestureDetector(
-                    onTap: () => p.removeSelectedService(svc.id),
-                    child: Icon(Icons.cancel_rounded, color: svc.color.withOpacity(0.7), size: _sw * 0.035),
-                  ),
-                ]),
-              )).toList(),
+                    Text(svc.name,
+                        style: TextStyle(fontSize: _fsXS, fontWeight: FontWeight.bold,
+                            color: Colors.black87)),
+                    SizedBox(width: _sw * 0.01),
+                    GestureDetector(
+                      onTap: () => p.removeSelectedService(svc.id),
+                      child: Icon(Icons.cancel_rounded, color: svc.color.withOpacity(0.7), size: _sw * 0.035),
+                    ),
+                  ]),
+                );
+
+                if (isHourly) {
+                  return Tooltip(
+                    message: tooltipMsg,
+                    textStyle: const TextStyle(color: Colors.white, fontSize: 11),
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.all(8),
+                    preferBelow: false,
+                    child: chip,
+                  );
+                }
+                return chip;
+              }).toList(),
             ),
             SizedBox(height: _sh * 0.012),
             // ── Compact Bill Generate Button ──
@@ -1211,7 +1891,7 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
   //  6. DISCHARGE ROW
   // ──────────────────────────────────────
   Widget _dischargeCard() {
-    final opts = ['After Treatment','Refer to Admission','Refer to Other Hospital','Patient Expired'];
+    final opts = ['Discharged', 'Admitted to Ward', 'Admitted to ICU', 'Referred', 'LAMA', 'Expired'];
     return Container(
       padding: EdgeInsets.symmetric(horizontal: _sw * 0.035, vertical: _sh * 0.012),
       decoration: BoxDecoration(
@@ -1303,7 +1983,7 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
   // ──────────────────────────────────────
   //  EMERGENCY PATIENTS QUEUE CARD
   // ──────────────────────────────────────
-  Widget _queueCard(EmergencyProvider prov) {
+  Widget _queueCard(EmergencyProvider prov, {VoidCallback? onStateChanged}) {
     return Container(
       decoration: BoxDecoration(
         color: cardColor,
@@ -1352,7 +2032,11 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
           final diff = DateTime.now().difference(p.admittedSince);
           final since = diff.inMinutes < 60 ? '${diff.inMinutes}m ago' : '${diff.inHours}h ${diff.inMinutes.remainder(60)}m';
           return GestureDetector(
-            onTap: () => _fillPatient(p),
+            onTap: () {
+              _fillPatient(p);
+              _loadExistingTreatment(p.mrNo, prov);
+              onStateChanged?.call();
+            },
             child: Container(
               padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.009),
               decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFF5F5F5)))),
@@ -1371,6 +2055,7 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
           onPressed: () {
             _syncOpdPatients();
             prov.refresh();
+            onStateChanged?.call();
           },
           icon: Icon(Icons.refresh_rounded, size: _sw * 0.032, color: Colors.grey.shade500),
           label: Text('Refresh', style: TextStyle(fontSize: _fsS, color: Colors.grey.shade600)),
@@ -1382,7 +2067,7 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
   // ──────────────────────────────────────
   //  INVESTIGATIONS + MEDICINES TABBED CARD
   // ──────────────────────────────────────
-  Widget _invMedCard(EmergencyProvider prov) {
+  Widget _invMedCard(EmergencyProvider prov, {VoidCallback? onStateChanged}) {
     return Container(
       decoration: BoxDecoration(
         color: cardColor,
@@ -1406,8 +2091,8 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
           child: TabBarView(
             controller: _rightTab,
             children: [
-              _investigationsView(prov),
-              _medicinesView(prov),
+              _investigationsView(prov, onStateChanged: onStateChanged),
+              _medicinesView(prov, onStateChanged: onStateChanged),
             ],
           ),
         ),
@@ -1416,37 +2101,80 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
   }
 
   // ── INVESTIGATIONS TAB ──
-  Widget _investigationsView(EmergencyProvider prov) {
-    final types = ['Lab', 'Ultra Sound', 'X-Rays'];
-    final items = prov.investigations[_invType] ?? [];
+  Widget _investigationsView(EmergencyProvider prov, {VoidCallback? onStateChanged}) {
+    final types = ['Lab', 'Ultra Sound', 'X-Ray', 'CT Scan', 'MRI'];
+
+    final search = _invSearchCtrl.text.toLowerCase();
+    List<String> items = [];
+    if (_invType == 'Lab') {
+      items = prov.labTests
+          .map((e) => e['test_name']?.toString() ?? '')
+          .where((name) => name.isNotEmpty && (search.isEmpty || name.toLowerCase().contains(search)))
+          .toList();
+    } else {
+      final category = _invType == 'Ultra Sound' ? 'Ultrasound' : (_invType == 'CT Scan' ? 'CT-Scan' : _invType);
+      items = prov.radiologyTests
+          .where((e) => e['test_category']?.toString() == category)
+          .map((e) => e['test_name']?.toString() ?? '')
+          .where((name) => name.isNotEmpty && (search.isEmpty || name.toLowerCase().contains(search)))
+          .toList();
+    }
 
     return Column(children: [
       Padding(
         padding: EdgeInsets.symmetric(horizontal: _sw * 0.02, vertical: _sh * 0.007),
-        child: Row(children: types.map((t) => Expanded(
-          child: GestureDetector(
-            onTap: () => setState(() => _invType = t),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: types.map((t) => GestureDetector(
+            onTap: () {
+              setState(() {
+                _invType = t;
+                _invSearchCtrl.clear();
+              });
+              onStateChanged?.call();
+            },
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Radio<String>(
                 value: t, groupValue: _invType, activeColor: danger,
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 visualDensity: VisualDensity.compact,
-                onChanged: (v) => setState(() => _invType = v!),
+                onChanged: (v) {
+                  setState(() {
+                    _invType = v!;
+                    _invSearchCtrl.clear();
+                  });
+                  onStateChanged?.call();
+                },
               ),
-              Flexible(child: Text(t,
-                  style: TextStyle(fontSize: _fsXS, color: Colors.black87),
-                  overflow: TextOverflow.ellipsis)),
+              Text(t, style: TextStyle(fontSize: _fsXS, color: Colors.black87)),
+              SizedBox(width: _sw * 0.015),
             ]),
-          ),
-        )).toList()),
+          )).toList()),
+        ),
       ),
-      Divider(height: _sh * 0.001, color: const Color(0xFFEEEEEE)),
+      Divider(height: 1, color: Colors.grey.shade200),
+      Padding(
+        padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.008),
+        child: TextField(
+          controller: _invSearchCtrl,
+          style: TextStyle(fontSize: _fsS),
+          decoration: _dec('Search investigation...').copyWith(
+            prefixIcon: const Icon(Icons.search, size: 16),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+          ),
+          onChanged: (_) {
+            setState(() {});
+            onStateChanged?.call();
+          },
+        ),
+      ),
+      Divider(height: 1, color: Colors.grey.shade200),
       Expanded(child: ListView.builder(
         padding: EdgeInsets.zero,
         itemCount: items.length,
         itemBuilder: (_, i) {
           final item = items[i];
-          final added = prov.addedInvestigations.any((a) => a.name == item);
+          final added = prov.addedInvestigations.any((a) => a.name.toLowerCase() == item.toLowerCase());
           return GestureDetector(
             onTap: () => prov.addInvestigation(_invType, item),
             child: Container(
@@ -1474,112 +2202,270 @@ class _EmergencyTreatmentScreenState extends State<EmergencyTreatmentScreen>
       Divider(height: _sh * 0.001, color: const Color(0xFFEEEEEE)),
       prov.addedInvestigations.isEmpty
           ? Padding(
-        padding: EdgeInsets.symmetric(vertical: _sh * 0.012),
-        child: Text('Click an item above to add',
-            style: TextStyle(fontSize: _fsS, color: Colors.grey.shade400, fontStyle: FontStyle.italic)),
-      )
-          : Column(children: prov.addedInvestigations.map((inv) => Container(
-        padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.007),
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
-        child: Row(children: [
-          Expanded(child: Text(inv.type, style: TextStyle(fontSize: _fsXS, color: Colors.grey.shade600))),
-          Expanded(flex: 2, child: Text(inv.name, style: TextStyle(fontSize: _fsXS, color: Colors.black87),
-              maxLines: 2, overflow: TextOverflow.ellipsis)),
-          GestureDetector(
-            onTap: () => prov.removeInvestigation(inv.name),
-            child: Icon(Icons.close_rounded, color: Colors.red.shade300, size: _sw * 0.032),
-          ),
-        ]),
-      )).toList()),
+              padding: EdgeInsets.symmetric(vertical: _sh * 0.012),
+              child: Text('Click an item above to add',
+                  style: TextStyle(fontSize: _fsS, color: Colors.grey.shade400, fontStyle: FontStyle.italic)),
+            )
+          : Container(
+              height: _sh * 0.18,
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: prov.addedInvestigations.length,
+                itemBuilder: (_, idx) {
+                  final inv = prov.addedInvestigations[idx];
+                  return Container(
+                    padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.007),
+                    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+                    child: Row(children: [
+                      Expanded(child: Text(inv.type, style: TextStyle(fontSize: _fsXS, color: Colors.grey.shade600))),
+                      Expanded(flex: 2, child: Text(inv.name, style: TextStyle(fontSize: _fsXS, color: Colors.black87), maxLines: 2, overflow: TextOverflow.ellipsis)),
+                      GestureDetector(
+                        onTap: () => prov.removeInvestigation(inv.name),
+                        child: Icon(Icons.close_rounded, color: Colors.red.shade300, size: _sw * 0.032),
+                      ),
+                    ]),
+                  );
+                },
+              ),
+            ),
       SizedBox(height: _sh * 0.008),
     ]);
   }
 
   // ── MEDICINES TAB ──
-  Widget _medicinesView(EmergencyProvider prov) {
+  Widget _medicinesView(EmergencyProvider prov, {VoidCallback? onStateChanged}) {
+    final search = _medSearchCtrl.text.toLowerCase();
+    final items = prov.medicinesList
+        .map((e) => e['medicine_name']?.toString() ?? e['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty && (search.isEmpty || name.toLowerCase().contains(search)))
+        .toList();
+
     return Column(children: [
       Padding(
-        padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.009),
+        padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.008),
+        child: TextField(
+          controller: _medSearchCtrl,
+          style: TextStyle(fontSize: _fsS),
+          decoration: _dec('Search medicine...').copyWith(
+            prefixIcon: const Icon(Icons.search, size: 16),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+          ),
+          onChanged: (_) {
+            setState(() {});
+            onStateChanged?.call();
+          },
+        ),
+      ),
+      Divider(height: 1, color: Colors.grey.shade200),
+      Expanded(
+        flex: 3,
+        child: ListView.builder(
+          padding: EdgeInsets.zero,
+          itemCount: items.length,
+          itemBuilder: (_, i) {
+            final name = items[i];
+            final presc = prov.isMedicinePrescribed(name);
+            return GestureDetector(
+              onTap: () => prov.toggleMedicine(name),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.009),
+                decoration: BoxDecoration(
+                  color: presc ? primary.withOpacity(0.06) : Colors.transparent,
+                  border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+                ),
+                child: Row(children: [
+                  Icon(presc ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                      color: presc ? primary : Colors.grey.shade400, size: _sw * 0.036),
+                  SizedBox(width: _sw * 0.014),
+                  Expanded(child: Text(name, style: TextStyle(fontSize: _fsS, fontWeight: FontWeight.w600, color: Colors.black87))),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+      Divider(height: 1, color: Colors.grey.shade200),
+      Padding(
+        padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.006),
         child: Row(children: [
-          Text('Select Medicines', style: TextStyle(fontSize: _fsS, fontWeight: FontWeight.w600, color: Colors.black54)),
-          const Spacer(),
-          Consumer<EmergencyProvider>(builder: (_, p, __) => Container(
-            padding: EdgeInsets.symmetric(horizontal: _sw * 0.02, vertical: _sh * 0.003),
-            decoration: BoxDecoration(color: primary.withOpacity(0.1), borderRadius: BorderRadius.circular(_sw * 0.04)),
-            child: Text('${p.prescribedMedicines.length} added',
-                style: TextStyle(fontSize: _fsXS, color: primary, fontWeight: FontWeight.w700)),
-          )),
+          Expanded(child: Text('NAME', style: TextStyle(fontSize: _fsXS, fontWeight: FontWeight.w700, color: Colors.black54))),
+          Text('PLAN x DAYS', style: TextStyle(fontSize: _fsXS, fontWeight: FontWeight.w700, color: Colors.black54)),
+          SizedBox(width: _sw * 0.08),
         ]),
       ),
-      Divider(height: _sh * 0.001, color: const Color(0xFFEEEEEE)),
-      Expanded(child: ListView.builder(
-        padding: EdgeInsets.zero,
-        itemCount: prov.medicinesList.length,
-        itemBuilder: (_, i) {
-          final med = prov.medicinesList[i];
-          final presc = prov.isMedicinePrescribed(med.name);
-          return GestureDetector(
-            onTap: () => prov.toggleMedicine(med),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.009),
-              decoration: BoxDecoration(
-                color: presc ? primary.withOpacity(0.06) : Colors.transparent,
-                border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+      Divider(height: 1, color: Colors.grey.shade200),
+      Expanded(
+        flex: 2,
+        child: prov.prescribedMedicines.isEmpty
+            ? Center(child: Text('Click a medicine above to add',
+                style: TextStyle(fontSize: _fsS, color: Colors.grey.shade400, fontStyle: FontStyle.italic)))
+            : ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: prov.prescribedMedicines.length,
+                itemBuilder: (_, i) {
+                  final presc = prov.prescribedMedicines[i];
+                  return Container(
+                    padding: EdgeInsets.symmetric(horizontal: _sw * 0.028, vertical: _sh * 0.005),
+                    decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
+                    child: Row(children: [
+                      Expanded(child: Text(presc.name, style: TextStyle(fontSize: _fsXS, color: Colors.black87), maxLines: 2, overflow: TextOverflow.ellipsis)),
+                      Row(children: [
+                        SizedBox(
+                          width: _sw * 0.1,
+                          height: 22,
+                          child: TextField(
+                            decoration: InputDecoration(
+                              contentPadding: EdgeInsets.zero,
+                              isDense: true,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                            ),
+                            style: TextStyle(fontSize: _fsXS),
+                            textAlign: TextAlign.center,
+                            controller: TextEditingController(text: presc.plan)
+                              ..selection = TextSelection.fromPosition(TextPosition(offset: presc.plan.length)),
+                            onChanged: (val) => presc.plan = val,
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                          child: Text('x', style: TextStyle(fontSize: _fsXS, color: Colors.grey)),
+                        ),
+                        SizedBox(
+                          width: _sw * 0.07,
+                          height: 22,
+                          child: TextField(
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              contentPadding: EdgeInsets.zero,
+                              isDense: true,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                            ),
+                            style: TextStyle(fontSize: _fsXS),
+                            textAlign: TextAlign.center,
+                            controller: TextEditingController(text: presc.days)
+                              ..selection = TextSelection.fromPosition(TextPosition(offset: presc.days.length)),
+                            onChanged: (val) => presc.days = val,
+                          ),
+                        ),
+                      ]),
+                      SizedBox(width: _sw * 0.015),
+                      GestureDetector(
+                        onTap: () => prov.removeMedicine(presc.name),
+                        child: Icon(Icons.close_rounded, color: Colors.red.shade300, size: _sw * 0.035),
+                      ),
+                    ]),
+                  );
+                },
               ),
-              child: Row(children: [
-                Icon(presc ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                    color: presc ? primary : Colors.grey.shade400, size: _sw * 0.036),
-                SizedBox(width: _sw * 0.014),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(med.name, style: TextStyle(fontSize: _fsS, fontWeight: FontWeight.w600, color: Colors.black87)),
-                  Text('${med.dose}  •  ${med.route}',
-                      style: TextStyle(fontSize: _fsXS, color: Colors.grey.shade500)),
-                ])),
-              ]),
-            ),
-          );
-        },
-      )),
+      ),
     ]);
   }
 
   // ════════════════════════════════════════
-  //  NARROW: bottom sheet for right panel
+  //  NARROW: popup dialogue for right panel
   // ════════════════════════════════════════
-  void _openSheet(EmergencyProvider prov) {
-    showModalBottomSheet(
+  void _openPopup(EmergencyProvider prov) {
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ChangeNotifierProvider.value(
-        value: prov,
-        child: Container(
-          height: _sh * 0.88,
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(_sw * 0.06)),
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return ChangeNotifierProvider.value(
+          value: prov,
+          child: StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              final double sw = MediaQuery.of(dialogContext).size.width;
+              final double sh = MediaQuery.of(dialogContext).size.height;
+              final double fsS = sw < 360 ? 10.0 : 11.5;
+
+              return Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding: EdgeInsets.symmetric(
+                    horizontal: sw >= 720 ? sw * 0.08 : sw * 0.025,
+                    vertical: sh * 0.025),
+                child: Scaffold(
+                  backgroundColor: Colors.transparent,
+                  resizeToAvoidBottomInset: true,
+                  body: Container(
+                    constraints: BoxConstraints(maxHeight: sh * 0.92),
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      borderRadius: BorderRadius.circular(sw * 0.05),
+                    ),
+                    child: Column(children: [
+                      // Header
+                      Container(
+                        padding: EdgeInsets.all(sw * 0.04),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFEF5350), Color(0xFFE53935)],
+                          ),
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(sw * 0.05),
+                            topRight: Radius.circular(sw * 0.05),
+                          ),
+                        ),
+                        child: Row(children: [
+                          Icon(Icons.emergency_rounded,
+                              color: Colors.white, size: sw * 0.048),
+                          SizedBox(width: sw * 0.02),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Emergency Actions',
+                                    style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: sw * 0.042,
+                                        fontWeight: FontWeight.bold)),
+                                Text('Manage queue and prescriptions',
+                                    style: TextStyle(color: Colors.white70, fontSize: fsS)),
+                              ],
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => Navigator.pop(dialogContext),
+                            child: Container(
+                              padding: EdgeInsets.all(sw * 0.018),
+                              decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  shape: BoxShape.circle),
+                              child: Icon(Icons.close_rounded,
+                                  color: Colors.white, size: sw * 0.042),
+                            ),
+                          ),
+                        ]),
+                      ),
+                      // Body
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.all(sw * 0.035),
+                          physics: const BouncingScrollPhysics(),
+                          child: Consumer<EmergencyProvider>(
+                            builder: (consumerContext, p, __) {
+                              return Column(
+                                children: [
+                                  _queueCard(p, onStateChanged: () {
+                                    setDialogState(() {});
+                                  }),
+                                  SizedBox(height: sh * 0.012),
+                                  _invMedCard(p, onStateChanged: () {
+                                    setDialogState(() {});
+                                  }),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              );
+            },
           ),
-          child: Column(children: [
-            Container(
-              margin: EdgeInsets.symmetric(vertical: _sh * 0.012),
-              width: _sw * 0.1, height: _sh * 0.005,
-              decoration: BoxDecoration(color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(_sw * 0.01)),
-            ),
-            Expanded(child: SingleChildScrollView(
-              padding: EdgeInsets.all(_pad),
-              physics: const BouncingScrollPhysics(),
-              child: Consumer<EmergencyProvider>(builder: (_, p, __) => Column(children: [
-                _queueCard(p),
-                SizedBox(height: _sh * 0.012),
-                _invMedCard(p),
-                SizedBox(height: _bp + _pad),
-              ])),
-            )),
-          ]),
-        ),
-      ),
+        );
+      },
     );
   }
 
