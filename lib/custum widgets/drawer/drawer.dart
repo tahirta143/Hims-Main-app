@@ -406,12 +406,20 @@ class _CustomDrawerState extends State<CustomDrawer> {
 
                   // Add Expenses — standalone
 
-                  // Emergency Treatment — standalone
+                  // Emergency Treatment — commented out; access via drawer if needed
+                  // if (perm.canAny([Perm.emergencyRead, Perm.emergencyCreate]))
+                  //   _buildDrawerItem(
+                  //     icon: Icons.emergency_rounded,
+                  //     title: 'Emergency Treatment',
+                  //     index: 5,
+                  //   ),
+
+                  // Emergency Dashboard — standalone
                   if (perm.canAny([Perm.emergencyRead, Perm.emergencyCreate]))
                     _buildDrawerItem(
-                      icon: Icons.emergency_rounded,
-                      title: 'Emergency Treatment',
-                      index: 5,
+                      icon: Icons.dashboard_customize_rounded,
+                      title: 'Emergency Dashboard',
+                      index: 24,
                     ),
 
                   // ── Reports Dropdown ───────────────────────────────────────

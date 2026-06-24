@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hims_app/core/providers/permission_provider.dart';
 import 'package:hims_app/providers/dashboard/dashboard_provider.dart';
 import 'package:hims_app/providers/emergency_treatment_provider/emergency_provider.dart';
+import 'package:hims_app/providers/emergency_treatment_provider/emergency_dashboard_provider.dart';
 import 'package:hims_app/providers/mr_provider/mr_provider.dart';
 import 'package:hims_app/providers/opd/consultation_provider/cunsultation_provider.dart';
 import 'package:hims_app/providers/opd/opd_reciepts/opd_reciepts.dart';
@@ -49,6 +50,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ConsultationProvider()),
         ChangeNotifierProvider(create: (_) => OpdProvider()),
         ChangeNotifierProvider(create: (_) => EmergencyProvider()),
+        ChangeNotifierProvider(create: (_) => EmergencyDashboardProvider()),
         ChangeNotifierProvider(create: (_) => MrProvider()),
         ChangeNotifierProvider(create: (_) => ShiftProvider()),
         ChangeNotifierProvider(create: (_) => VoucherProvider()),

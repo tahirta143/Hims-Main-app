@@ -37,10 +37,17 @@ class _CustomFluidBottomNavBarState extends State<CustomFluidBottomNavBar>
       drawerIndex: 0,
       permissions: [Perm.appDashboardRead],
     ),
+    // Emergency Treatment commented out from bottom nav — use drawer instead
+    // _NavItemDef(
+    //   icon: Icons.warning_amber_rounded,
+    //   label: 'Emergency',
+    //   drawerIndex: 5,
+    //   permissions: [Perm.emergencyRead, Perm.emergencyCreate],
+    // ),
     _NavItemDef(
-      icon: Icons.warning_amber_rounded,
-      label: 'Emergency',
-      drawerIndex: 5,
+      icon: Icons.dashboard_customize_rounded,
+      label: 'EM Board',
+      drawerIndex: 24,
       permissions: [Perm.emergencyRead, Perm.emergencyCreate],
     ),
     _NavItemDef(

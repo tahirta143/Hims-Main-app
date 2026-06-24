@@ -4,6 +4,7 @@ import 'package:hims_app/screens/cunsultations/consultation_report.dart';
 import 'package:hims_app/screens/cunsultations/cunsultations.dart';
 import 'package:hims_app/screens/discount_vouchers/discount_vouchers.dart';
 import 'package:hims_app/screens/emergency_treatment/emergency_treatment.dart';
+import 'package:hims_app/screens/emergency_treatment/emergency_dashboard.dart';
 import 'package:hims_app/screens/mr_details/mr_details.dart';
 import 'package:hims_app/screens/opd_reciepts/opd_reciept.dart';
 import 'package:hims_app/screens/opd_reciepts/opd_records.dart';
@@ -444,6 +445,9 @@ class _BaseScaffoldState extends State<BaseScaffold> {
         break;
       case 23:
         screen = const ComplaintsBoardScreen();
+        break;
+      case 24:
+        screen = const EmergencyDashboardScreen();
         break;
       case 100:
         screen = const SyncDashboardScreen();
