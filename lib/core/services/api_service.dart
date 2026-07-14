@@ -41,6 +41,16 @@ class PermissionsResult {
   });
 }
 
+class ApiResult {
+  final bool success;
+  final String message;
+
+  ApiResult({
+    required this.success,
+    required this.message,
+  });
+}
+
 /// Central HTTP service using the `http` package.
 /// Automatically attaches Bearer tokens to protected requests.
 class ApiService {
@@ -173,6 +183,64 @@ class ApiService {
       return jsonDecode(response.body) as Map<String, dynamic>;
     } catch (e) {
       return {'success': false, 'message': 'Failed to change password: $e'};
+    }
+  }
+
+  // ─── POST /api/auth/forgot-password ─────────────────────────────────
+  Future<ApiResult> forgotPassword(String loginIdentifier) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${GlobalApi.baseUrl}/auth/forgot-password'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'loginIdentifier': loginIdentifier}),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return ApiResult(
+        success: data['success'] == true,
+        message: data['message'] as String? ??
+            (data['success'] == true ? 'OTP sent successfully' : 'Failed to send OTP'),
+      );
+    } catch (e) {
+      return ApiResult(
+        success: false,
+        message: 'Could not connect to server. Please check your connection.',
+      );
+    }
+  }
+
+  // ─── POST /api/auth/reset-password ──────────────────────────────────
+  Future<ApiResult> resetPassword({
+    required String loginIdentifier,
+    required String otp,
+    required String newPassword,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${GlobalApi.baseUrl}/auth/reset-password'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'loginIdentifier': loginIdentifier,
+              'otp': otp,
+              'new_password': newPassword,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return ApiResult(
+        success: data['success'] == true,
+        message: data['message'] as String? ??
+            (data['success'] == true ? 'Password reset successfully' : 'Failed to reset password'),
+      );
+    } catch (e) {
+      return ApiResult(
+        success: false,
+        message: 'Could not connect to server. Please check your connection.',
+      );
     }
   }
 }

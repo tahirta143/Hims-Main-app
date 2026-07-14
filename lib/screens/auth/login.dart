@@ -99,6 +99,60 @@ class _SignInScreenState extends State<SignInScreen> {
     );
   }
 
+  void _showLoadingDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF00B5AD)),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleForgotPassword() async {
+    final username = _usernameController.text.trim();
+    if (username.isEmpty) {
+      _showSnackBar('Please enter your username or email in the field below first.', isError: true);
+      return;
+    }
+
+    _showLoadingDialog();
+
+    try {
+      final result = await _apiService.forgotPassword(username);
+      if (!mounted) return;
+      Navigator.of(context).pop(); // Dismiss loading dialog
+
+      if (!result.success) {
+        _showSnackBar(result.message, isError: true);
+        return;
+      }
+
+      _showSnackBar(result.message);
+      
+      String maskedEmail = 'your email';
+      final parts = result.message.split('email ');
+      if (parts.length > 1) {
+        maskedEmail = parts[1];
+      }
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _ForgotPasswordDialog(
+          loginIdentifier: username,
+          maskedEmail: maskedEmail,
+          apiService: _apiService,
+        ),
+      );
+    } catch (e) {
+      if (mounted) Navigator.of(context).pop(); // Dismiss loading dialog
+      _showSnackBar('An unexpected error occurred.', isError: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final mq        = MediaQuery.of(context);
@@ -246,7 +300,7 @@ class _SignInScreenState extends State<SignInScreen> {
                     Align(
                       alignment: Alignment.centerRight,
                       child: GestureDetector(
-                        onTap: () {},
+                        onTap: _isLoading ? null : _handleForgotPassword,
                         child: Text(
                           'Forgot Password?',
                           style: TextStyle(
@@ -341,6 +395,249 @@ class _SignInScreenState extends State<SignInScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Forgot Password Dialog ─────────────────────────────────────────────────────
+class _ForgotPasswordDialog extends StatefulWidget {
+  final String loginIdentifier;
+  final String maskedEmail;
+  final ApiService apiService;
+
+  const _ForgotPasswordDialog({
+    required this.loginIdentifier,
+    required this.maskedEmail,
+    required this.apiService,
+  });
+
+  @override
+  State<_ForgotPasswordDialog> createState() => _ForgotPasswordDialogState();
+}
+
+class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
+  final _otpController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  
+  bool _obscureNewPassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _isForgotLoading = false;
+
+  @override
+  void dispose() {
+    _otpController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _resetPassword() async {
+    final otp = _otpController.text.trim();
+    final newPassword = _newPasswordController.text.trim();
+    final confirmPassword = _confirmPasswordController.text.trim();
+
+    if (otp.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty) {
+      _showError('All fields are required');
+      return;
+    }
+
+    if (otp.length != 6) {
+      _showError('Please enter a 6-digit OTP');
+      return;
+    }
+
+    if (newPassword != confirmPassword) {
+      _showError('Passwords do not match');
+      return;
+    }
+
+    setState(() => _isForgotLoading = true);
+
+    try {
+      final result = await widget.apiService.resetPassword(
+        loginIdentifier: widget.loginIdentifier,
+        otp: otp,
+        newPassword: newPassword,
+      );
+
+      if (!result.success) {
+        _showError(result.message);
+        return;
+      }
+
+      if (!mounted) return;
+      
+      // Success snackbar on top screen
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message, style: const TextStyle(fontSize: 14)),
+          backgroundColor: const Color(0xFF00B5AD),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      
+      Navigator.of(context).pop(); // Close dialog
+    } finally {
+      if (mounted) setState(() => _isForgotLoading = false);
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 14)),
+        backgroundColor: Colors.red.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeColor = const Color(0xFF00B5AD);
+    final mq = MediaQuery.of(context);
+    final screenW = mq.size.width;
+    final inputFontSize = screenW * 0.038;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 16,
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Reset Password',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: themeColor,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'An OTP has been sent to ${widget.maskedEmail}. Please enter it below.',
+                style: const TextStyle(fontSize: 14, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              
+              // OTP field
+              TextField(
+                controller: _otpController,
+                maxLength: 6,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18, 
+                  letterSpacing: 8,
+                  fontWeight: FontWeight.bold,
+                ),
+                decoration: InputDecoration(
+                  counterText: '',
+                  hintText: '000000',
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade400,
+                    letterSpacing: 8,
+                  ),
+                  prefixIcon: const Icon(Icons.key, color: Colors.grey),
+                  filled: true,
+                  fillColor: const Color(0xFFF5F5F5),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: themeColor, width: 1.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 15),
+
+              // New Password Field
+              _InputField(
+                controller: _newPasswordController,
+                hint: 'New Password',
+                prefixIcon: Icons.lock_outline,
+                obscureText: _obscureNewPassword,
+                fontSize: inputFontSize,
+                suffixIcon: GestureDetector(
+                  onTap: () => setState(() => _obscureNewPassword = !_obscureNewPassword),
+                  child: Icon(
+                    _obscureNewPassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    color: Colors.grey,
+                    size: screenW * 0.045,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 15),
+
+              // Confirm Password Field
+              _InputField(
+                controller: _confirmPasswordController,
+                hint: 'Confirm Password',
+                prefixIcon: Icons.lock_outline,
+                obscureText: _obscureConfirmPassword,
+                fontSize: inputFontSize,
+                suffixIcon: GestureDetector(
+                  onTap: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+                  child: Icon(
+                    _obscureConfirmPassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    color: Colors.grey,
+                    size: screenW * 0.045,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 25),
+
+              // Action Buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _isForgotLoading ? null : () => Navigator.of(context).pop(),
+                    child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: _isForgotLoading ? null : _resetPassword,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: themeColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: _isForgotLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text('Reset Password'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
