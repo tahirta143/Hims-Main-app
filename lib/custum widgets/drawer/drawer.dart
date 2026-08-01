@@ -27,8 +27,8 @@ class CustomDrawer extends StatefulWidget {
 class _CustomDrawerState extends State<CustomDrawer> {
   // OPD dropdown indices: 1,3,4,6,7,10
   static const List<int> _opdIndices = [1, 3, 4, 6, 7, 10];
-  // Reports dropdown indices: 11
-  static const List<int> _reportsIndices = [11];
+  // Reports dropdown indices: 11, 30, 31, 32, 33, 34, 35
+  static const List<int> _reportsIndices = [11, 30, 31, 32, 33, 34, 35];
   // Prescription dropdown indices: 9, 13, 14, 15, 16
   static const List<int> _prescriptionIndices = [9, 13, 14, 15, 16];
   // Pharmacy dropdown indices: 17, 18, 19, 20
@@ -125,6 +125,36 @@ class _CustomDrawerState extends State<CustomDrawer> {
           title: 'Appointment Reports',
           index: 11,
         ),
+      const _DrawerItemData(
+        icon: Icons.money_off_rounded,
+        title: 'Expenses Report',
+        index: 30,
+      ),
+      const _DrawerItemData(
+        icon: Icons.science_outlined,
+        title: 'Lab Report',
+        index: 31,
+      ),
+      const _DrawerItemData(
+        icon: Icons.account_balance_wallet_outlined,
+        title: 'Shares Report',
+        index: 32,
+      ),
+      const _DrawerItemData(
+        icon: Icons.filter_tilt_shift_rounded,
+        title: 'Shift Report',
+        index: 33,
+      ),
+      const _DrawerItemData(
+        icon: Icons.calendar_month_outlined,
+        title: 'Monthly Report',
+        index: 34,
+      ),
+      const _DrawerItemData(
+        icon: Icons.auto_graph_outlined,
+        title: 'Yearly Report',
+        index: 35,
+      ),
     ];
 
     // ── Visible Prescription sub-items ───────────────────────────────────────

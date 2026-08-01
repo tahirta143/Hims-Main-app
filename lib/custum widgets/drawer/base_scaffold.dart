@@ -36,6 +36,12 @@ import '../../custum widgets/search/global_search_overlay.dart';
 import '../../providers/mr_provider/mr_provider.dart';
 import '../../providers/camp_provider.dart';
 import '../../screens/camp/camp_dashboard_screen.dart';
+import '../../screens/reports/expenses_report_screen.dart';
+import '../../screens/reports/lab_report_screen.dart';
+import '../../screens/reports/shares_report_screen.dart';
+import '../../screens/reports/shift_report_screen.dart';
+import '../../screens/reports/monthly_report_screen.dart';
+import '../../screens/reports/yearly_report_screen.dart';
 
 
 // ─── FIX: Convert BaseScaffold from StatelessWidget to StatefulWidget ─────────
@@ -448,6 +454,24 @@ class _BaseScaffoldState extends State<BaseScaffold> {
         break;
       case 24:
         screen = const EmergencyDashboardScreen();
+        break;
+      case 30:
+        screen = const ExpensesReportScreen();
+        break;
+      case 31:
+        screen = const LabReportScreen();
+        break;
+      case 32:
+        screen = const SharesReportScreen();
+        break;
+      case 33:
+        screen = const ShiftReportScreen();
+        break;
+      case 34:
+        screen = const MonthlyReportScreen();
+        break;
+      case 35:
+        screen = const YearlyReportScreen();
         break;
       case 100:
         screen = const SyncDashboardScreen();

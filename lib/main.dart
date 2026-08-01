@@ -23,6 +23,12 @@ import 'package:hims_app/providers/eye_provider/fundus_provider.dart';
 import 'package:hims_app/providers/pharmacy_provider/pharmacy_provider.dart';
 import 'package:hims_app/providers/sync_provider.dart';
 import 'package:hims_app/providers/camp_provider.dart';
+import 'package:hims_app/providers/reports/expenses_report_provider.dart';
+import 'package:hims_app/providers/reports/lab_report_provider.dart';
+import 'package:hims_app/providers/reports/shares_report_provider.dart';
+import 'package:hims_app/providers/reports/shift_report_provider.dart';
+import 'package:hims_app/providers/reports/monthly_report_provider.dart';
+import 'package:hims_app/providers/reports/yearly_report_provider.dart';
 import 'package:hims_app/screens/main_shell.dart';
 import 'package:provider/provider.dart';
 import 'package:animations/animations.dart';
@@ -70,6 +76,14 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => CampProvider()..initialize(),
         ),
+
+        // ─── Reports Providers ────────────────────────────────────────
+        ChangeNotifierProvider(create: (_) => ExpensesReportProvider()),
+        ChangeNotifierProvider(create: (_) => LabReportProvider()),
+        ChangeNotifierProvider(create: (_) => SharesReportProvider()),
+        ChangeNotifierProvider(create: (_) => ShiftReportProvider()),
+        ChangeNotifierProvider(create: (_) => MonthlyReportProvider()),
+        ChangeNotifierProvider(create: (_) => YearlyReportProvider()),
       ],
       child: MaterialApp(
         title: 'HIMS',
