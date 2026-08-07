@@ -42,6 +42,9 @@ import '../../screens/reports/shares_report_screen.dart';
 import '../../screens/reports/shift_report_screen.dart';
 import '../../screens/reports/monthly_report_screen.dart';
 import '../../screens/reports/yearly_report_screen.dart';
+import '../../screens/reports/opd_report_screen.dart';
+import '../../screens/reports/payroll_report_screen.dart';
+import '../../screens/reports/blank_report_screen.dart';
 
 
 // ─── FIX: Convert BaseScaffold from StatelessWidget to StatefulWidget ─────────
@@ -472,6 +475,24 @@ class _BaseScaffoldState extends State<BaseScaffold> {
         break;
       case 35:
         screen = const YearlyReportScreen();
+        break;
+      case 36:
+        screen = const OpdReportScreen();
+        break;
+      case 37:
+        screen = const BlankReportScreen(title: 'IPD', drawerIndex: 37);
+        break;
+      case 38:
+        screen = const BlankReportScreen(title: 'Pharmacy', drawerIndex: 38);
+        break;
+      case 39:
+        screen = const BlankReportScreen(title: 'Main Store', drawerIndex: 39);
+        break;
+      case 40:
+        screen = const PayrollReportScreen();
+        break;
+      case 41:
+        screen = const BlankReportScreen(title: 'Accounts', drawerIndex: 41);
         break;
       case 100:
         screen = const SyncDashboardScreen();

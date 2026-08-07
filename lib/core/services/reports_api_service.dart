@@ -293,4 +293,161 @@ class ReportsApiService {
       return null;
     }
   }
+
+  // ─── 7. OPD Patient Data (GET /opd-patient-data) ────────────────────
+  Future<List<dynamic>> fetchOpdPatientData(String startDate, String endDate) async {
+    try {
+      final headers = await _authHeaders();
+      final uri = _buildUri('/opd-patient-data', {
+        'startDate': startDate,
+        'endDate': endDate,
+      });
+
+      debugPrint('Fetching OPD patient data: $uri');
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['data'] != null && data['data'] is List) {
+          return data['data'] as List<dynamic>;
+        } else if (data is List) {
+          return data;
+        }
+      }
+      debugPrint('OPD report error status: ${response.statusCode} - ${response.body}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching OPD report: $e');
+      return [];
+    }
+  }
+
+  // ─── 8. Emergency Billing Data (GET /emergency-billing/date-range) ─
+  Future<List<dynamic>> fetchEmergencyBillsData(String startDate, String endDate) async {
+    try {
+      final headers = await _authHeaders();
+      final uri = _buildUri('/emergency-billing/date-range', {
+        'startDate': startDate,
+        'endDate': endDate,
+      });
+
+      debugPrint('Fetching Emergency bills data: $uri');
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['data'] != null && data['data'] is List) {
+          return data['data'] as List<dynamic>;
+        } else if (data is List) {
+          return data;
+        }
+      }
+      debugPrint('Emergency report error status: ${response.statusCode} - ${response.body}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching Emergency report: $e');
+      return [];
+    }
+  }
+
+  // ─── 9. Payroll Attendance Data (GET https://api.payroll.afaqhims.com/api/attendance) ──
+  Future<List<dynamic>> fetchPayrollAttendanceData({
+    String? departmentId,
+    String? employeeId,
+    String? shiftId,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (departmentId != null && departmentId.isNotEmpty) params['department_id'] = departmentId;
+      if (employeeId != null && employeeId.isNotEmpty) params['employee_id'] = employeeId;
+      if (shiftId != null && shiftId.isNotEmpty) params['duty_shift_id'] = shiftId;
+
+      final uri = Uri.parse('https://api.payroll.afaqhims.com/api/attendance').replace(queryParameters: params.isNotEmpty ? params : null);
+      debugPrint('Fetching Payroll Attendance: $uri');
+
+      final response = await http.get(uri, headers: {'Content-Type': 'application/json'}).timeout(const Duration(seconds: 20));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map) {
+          if (data['attendance'] is List) return data['attendance'] as List<dynamic>;
+          if (data['data'] is List) return data['data'] as List<dynamic>;
+        } else if (data is List) {
+          return data;
+        }
+      }
+      debugPrint('Payroll attendance error status: ${response.statusCode} - ${response.body}');
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching Payroll attendance: $e');
+      return [];
+    }
+  }
+
+  // ─── 10. Departments Lookup (GET /departments) ─────────────────────
+  Future<List<dynamic>> fetchDepartments() async {
+    try {
+      final headers = await _authHeaders();
+      final uri = _buildUri('/departments');
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map) {
+          if (data['departments'] is List) return data['departments'] as List<dynamic>;
+          if (data['data'] is List) return data['data'] as List<dynamic>;
+        } else if (data is List) {
+          return data;
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching departments: $e');
+      return [];
+    }
+  }
+
+  // ─── 11. Employees Lookup (GET /employees) ─────────────────────────
+  Future<List<dynamic>> fetchEmployees() async {
+    try {
+      final headers = await _authHeaders();
+      final uri = _buildUri('/employees');
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map) {
+          if (data['employees'] is List) return data['employees'] as List<dynamic>;
+          if (data['data'] is List) return data['data'] as List<dynamic>;
+        } else if (data is List) {
+          return data;
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching employees: $e');
+      return [];
+    }
+  }
+
+  // ─── 12. Shifts Lookup (GET /shifts) ───────────────────────────────
+  Future<List<dynamic>> fetchShifts() async {
+    try {
+      final headers = await _authHeaders();
+      final uri = _buildUri('/shifts');
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map) {
+          if (data['shifts'] is List) return data['shifts'] as List<dynamic>;
+          if (data['data'] is List) return data['data'] as List<dynamic>;
+        } else if (data is List) {
+          return data;
+        }
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching shifts: $e');
+      return [];
+    }
+  }
 }
+

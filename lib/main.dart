@@ -29,6 +29,8 @@ import 'package:hims_app/providers/reports/shares_report_provider.dart';
 import 'package:hims_app/providers/reports/shift_report_provider.dart';
 import 'package:hims_app/providers/reports/monthly_report_provider.dart';
 import 'package:hims_app/providers/reports/yearly_report_provider.dart';
+import 'package:hims_app/providers/reports/opd_report_provider.dart';
+import 'package:hims_app/providers/reports/payroll_report_provider.dart';
 import 'package:hims_app/screens/main_shell.dart';
 import 'package:provider/provider.dart';
 import 'package:animations/animations.dart';
@@ -84,6 +86,8 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ShiftReportProvider()),
         ChangeNotifierProvider(create: (_) => MonthlyReportProvider()),
         ChangeNotifierProvider(create: (_) => YearlyReportProvider()),
+        ChangeNotifierProvider(create: (_) => OpdReportProvider()),
+        ChangeNotifierProvider(create: (_) => PayrollReportProvider()),
       ],
       child: MaterialApp(
         title: 'HIMS',
