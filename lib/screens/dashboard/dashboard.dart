@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 
 import 'package:hims_app/custum widgets/drawer/base_scaffold.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
+import '../../core/services/auth_storage_service.dart';
 import '../../custum widgets/custom_loader.dart';
 import '../../providers/opd/consultation_provider/cunsultation_provider.dart';
 import '../../providers/mr_provider/mr_provider.dart';
@@ -18,14 +21,60 @@ import '../../global/global_api.dart';
 import '../../core/providers/permission_provider.dart';
 import '../../core/permissions/permission_keys.dart';
 
-import '../add_expenses/add_expenses.dart';
 import '../cunsultations/cunsultations.dart';
 import '../cunsultations/widgets/appointment_dialog.dart';
-import '../emergency_treatment/emergency_treatment.dart';
-import '../mr_details/mr_view/mr_view.dart';
-import 'offline_dashboard.dart';
 
 const Color _teal = Color(0xFF00B5AD);
+
+// ─── Palette & card config (mirrors React CARDS) ─────────────────────────────
+class _CardConfig {
+  final String key;
+  final String label;
+  final Color accent;
+  final String note;
+
+  const _CardConfig({
+    required this.key,
+    required this.label,
+    required this.accent,
+    required this.note,
+  });
+}
+
+const _kCards = [
+  _CardConfig(key: 'opd', label: 'OPD', accent: Color(0xFF0D9488), note: 'Excludes consultation, lab & emergency'),
+  _CardConfig(key: 'consultation', label: 'Consultation', accent: Color(0xFF4F46E5), note: 'Doctor & hospital split'),
+  _CardConfig(key: 'emergency', label: 'Emergency', accent: Color(0xFFE11D48), note: 'Emergency receipts & bills'),
+  _CardConfig(key: 'lab', label: 'Laboratory', accent: Color(0xFF7C3AED), note: 'OPD receipts billed to lab'),
+  _CardConfig(key: 'expenses', label: 'Expenses', accent: Color(0xFFC2410C), note: 'Direct expenses recorded'),
+  _CardConfig(key: 'revenue', label: 'Net Revenue', accent: Color(0xFF047857), note: 'Collected less shares & expenses'),
+];
+
+// ─────────────────────────────────────────────
+//  NUMBER HELPERS
+// ─────────────────────────────────────────────
+String _money(double v) => NumberFormat('#,###').format(v.round());
+String _compact(double v) {
+  final abs = v.abs();
+  if (abs >= 10000000) return '${(v / 10000000).toStringAsFixed(2)}Cr';
+  if (abs >= 100000) return '${(v / 100000).toStringAsFixed(2)}L';
+  if (abs >= 1000) return '${(v / 1000).toStringAsFixed(1)}k';
+  return v.round().toString();
+}
+
+String _format12h(String? timeStr) {
+  if (timeStr == null || timeStr.isEmpty) return '';
+  try {
+    final parts = timeStr.split(':');
+    final h = int.parse(parts[0]);
+    final m = parts.length > 1 ? parts[1].padLeft(2, '0') : '00';
+    final suffix = h >= 12 ? 'PM' : 'AM';
+    final h12 = h % 12 == 0 ? 12 : h % 12;
+    return '$h12:$m $suffix';
+  } catch (_) {
+    return timeStr;
+  }
+}
 
 // ─────────────────────────────────────────────
 //  ANIMATED COUNTER WIDGET
@@ -89,10 +138,10 @@ class _AnimatedCounterState extends State<_AnimatedCounter>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _animation,
-      builder: (_, __) {
+      builder: (_, _) {
         final val = _animation.value;
         final text = widget.isCurrency
-            ? 'PKR ${NumberFormat('#,###').format(val.round())}'
+            ? 'PKR ${_money(val)}'
             : val.round().toString();
         return Text(text, style: widget.style);
       },
@@ -101,111 +150,736 @@ class _AnimatedCounterState extends State<_AnimatedCounter>
 }
 
 // ─────────────────────────────────────────────
-//  SUMMARY CARD WIDGET  (compact)
+//  MINI STAT (inside stat card)
 // ─────────────────────────────────────────────
-class _SummaryCard extends StatelessWidget {
-  final String title;
-  final double numericValue;
-  final bool isCurrency;
-  final IconData icon;
-  final Color color;
-  final String trend;
-  final bool trendUp;
-  final String subtitle;
+class _MiniStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color valueColor;
 
-  const _SummaryCard({
-    required this.title,
-    required this.numericValue,
-    required this.isCurrency,
-    required this.icon,
-    required this.color,
-    required this.trend,
-    required this.trendUp,
-    required this.subtitle,
+  const _MiniStat({
+    required this.label,
+    required this.value,
+    this.valueColor = const Color(0xFF334155),
   });
 
   @override
   Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(fontSize: 8, color: Colors.grey.shade400, fontWeight: FontWeight.w500),
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: valueColor,
+                fontFamily: 'monospace',
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  STAT CARD WIDGET (matches React StatCard)
+// ─────────────────────────────────────────────
+class _StatCard extends StatelessWidget {
+  final _CardConfig card;
+  final ManagementSummary? summary;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _StatCard({
+    required this.card,
+    required this.summary,
+    required this.selected,
+    required this.onTap,
+  });
+
+  DashboardCategory get _cat {
+    if (summary == null) return DashboardCategory.empty();
+    switch (card.key) {
+      case 'opd': return summary!.opd;
+      case 'consultation': return summary!.consultation;
+      case 'emergency': return summary!.emergency;
+      case 'lab': return summary!.lab;
+      case 'expenses': return summary!.expenses;
+      default: return DashboardCategory.empty();
+    }
+  }
+
+  DashboardRevenue get _rev => summary?.revenue ?? DashboardRevenue.empty();
+
+  bool get _isRevenue => card.key == 'revenue';
+  bool get _isConsult => card.key == 'consultation';
+  double get _amount => _isRevenue ? _rev.net : _cat.amount;
+  int get _count => _isRevenue
+      ? (summary != null
+          ? summary!.opd.qty + summary!.consultation.qty + summary!.emergency.qty + summary!.lab.qty
+          : 0)
+      : _cat.qty;
+  bool get _profit => !_isRevenue || _rev.net >= 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: _isRevenue && !_profit
+              ? const Color(0xFFFFF1F2)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? card.accent : Colors.grey.shade100,
+            width: selected ? 1.8 : 1,
+          ),
+          boxShadow: [
+            if (selected)
+              BoxShadow(
+                color: card.accent.withValues(alpha: 0.18),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              )
+            else
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 4,
+                offset: const Offset(0, 1.5),
+              ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Header row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(color: card.accent, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      card.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+                if (_isRevenue)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: _profit
+                          ? const Color(0xFFECFDF5)
+                          : const Color(0xFFFFF1F2),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _profit ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+                          size: 8,
+                          color: _profit ? const Color(0xFF059669) : const Color(0xFFE11D48),
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          _profit ? 'Profit' : 'Loss',
+                          style: TextStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            color: _profit ? const Color(0xFF059669) : const Color(0xFFE11D48),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _count.toString(),
+                      style: TextStyle(
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade600,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+
+            // Animated amount
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  'PKR',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                    color: _isRevenue
+                        ? (_profit ? const Color(0xFF059669).withValues(alpha: 0.6) : const Color(0xFFE11D48).withValues(alpha: 0.6))
+                        : Colors.grey.shade400,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Expanded(
+                  child: _AnimatedCounter(
+                    targetValue: _amount,
+                    isCurrency: false,
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                      color: _isRevenue
+                          ? (_profit ? const Color(0xFF059669) : const Color(0xFFE11D48))
+                          : const Color(0xFF0F172A),
+                      fontFamily: 'monospace',
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Mini stats
+            if (_isRevenue) ...[
+              Row(
+                children: [
+                  _MiniStat(label: 'Coll', value: _compact(_rev.collected)),
+                  const SizedBox(width: 2),
+                  _MiniStat(label: 'Dr.', value: _compact(-_rev.drShare), valueColor: const Color(0xFFE11D48)),
+                  const SizedBox(width: 2),
+                  _MiniStat(label: 'Exp', value: _compact(-_rev.expenses), valueColor: const Color(0xFFF97316)),
+                ],
+              ),
+            ] else if (_isConsult) ...[
+              Row(
+                children: [
+                  _MiniStat(label: 'Dr. Share', value: _compact(_cat.drShare), valueColor: const Color(0xFFE11D48)),
+                  const SizedBox(width: 2),
+                  _MiniStat(label: 'Hospital', value: _compact(_cat.hospitalShare), valueColor: const Color(0xFF059669)),
+                ],
+              ),
+            ] else ...[
+              Text(
+                card.note,
+                style: TextStyle(fontSize: 8.5, color: Colors.grey.shade400),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  CATEGORY BAR CHART (matches React BarChart)
+// ─────────────────────────────────────────────
+class _CategoryBarChart extends StatelessWidget {
+  final ManagementSummary? summary;
+  final String? selectedCategory;
+  final ValueChanged<String?> onSelect;
+
+  const _CategoryBarChart({
+    required this.summary,
+    required this.selectedCategory,
+    required this.onSelect,
+  });
+
+  List<Map<String, dynamic>> get _chartData {
+    if (summary == null) return [];
+    return [
+      {'key': 'opd', 'name': 'OPD', 'accent': const Color(0xFF0D9488), 'value': summary!.opd.amount},
+      {'key': 'consultation', 'name': 'Consult', 'accent': const Color(0xFF4F46E5), 'value': summary!.consultation.amount},
+      {'key': 'emergency', 'name': 'Emerg', 'accent': const Color(0xFFE11D48), 'value': summary!.emergency.amount},
+      {'key': 'lab', 'name': 'Lab', 'accent': const Color(0xFF7C3AED), 'value': summary!.lab.amount},
+      {'key': 'expenses', 'name': 'Expense', 'accent': const Color(0xFFC2410C), 'value': summary!.expenses.amount},
+      {
+        'key': 'revenue',
+        'name': 'Net Rev',
+        'accent': summary!.revenue.net >= 0 ? const Color(0xFF047857) : const Color(0xFFE11D48),
+        'value': summary!.revenue.net,
+      },
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _chartData;
+
+    if (data.isEmpty) {
+      return const SizedBox(
+        height: 180,
+        child: Center(
+          child: Text('No data', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+        ),
+      );
+    }
+
+    final maxVal = data.map((d) => (d['value'] as double).abs()).reduce((a, b) => a > b ? a : b);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Performance by category',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Tap a bar to drill in',
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 220,
+          child: BarChart(
+            BarChartData(
+              maxY: maxVal > 0 ? maxVal * 1.2 : 100,
+              minY: 0,
+              alignment: BarChartAlignment.spaceAround,
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: false,
+                horizontalInterval: maxVal > 0 ? maxVal / 4 : 25,
+                getDrawingHorizontalLine: (_) => FlLine(
+                  color: Colors.grey.shade100,
+                  strokeWidth: 1,
+                ),
+              ),
+              borderData: FlBorderData(show: false),
+              titlesData: FlTitlesData(
+                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 42,
+                    getTitlesWidget: (val, _) => Text(
+                      _compact(val),
+                      style: const TextStyle(fontSize: 8, color: Color(0xFFCBD5E1)),
+                    ),
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 26,
+                    getTitlesWidget: (val, _) {
+                      final i = val.toInt();
+                      if (i < 0 || i >= data.length) return const SizedBox();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          data[i]['name'] as String,
+                          style: const TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              barTouchData: BarTouchData(
+                touchCallback: (event, response) {
+                  if (event is FlTapUpEvent && response?.spot != null) {
+                    final key = data[response!.spot!.touchedBarGroupIndex]['key'] as String;
+                    onSelect(key);
+                  }
+                },
+                touchTooltipData: BarTouchTooltipData(
+                  getTooltipColor: (_) => const Color(0xFF1E293B),
+                  tooltipRoundedRadius: 8,
+                  getTooltipItem: (group, groupIdx, rod, rodIdx) {
+                    final d = data[groupIdx];
+                    return BarTooltipItem(
+                      '${d['name']}\nPKR ${_money(d['value'] as double)}',
+                      const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              barGroups: List.generate(data.length, (i) {
+                final d = data[i];
+                final key = d['key'] as String;
+                final accent = d['accent'] as Color;
+                final isSelected = selectedCategory == null || selectedCategory == key;
+                return BarChartGroupData(
+                  x: i,
+                  barRods: [
+                    BarChartRodData(
+                      toY: (d['value'] as double).abs(),
+                      width: 24,
+                      color: accent.withValues(alpha: isSelected ? 1.0 : 0.28),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(5)),
+                    ),
+                  ],
+                );
+              }),
+            ),
+            swapAnimationDuration: Duration.zero,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  BREAKDOWN PANEL (matches React DrillDownTable)
+// ─────────────────────────────────────────────
+class _BreakdownPanel extends StatelessWidget {
+  final String? selectedCategory;
+  final ManagementSummary? summary;
+  final VoidCallback onClear;
+  final ValueChanged<DashboardHead> onRowTap;
+
+  const _BreakdownPanel({
+    required this.selectedCategory,
+    required this.summary,
+    required this.onClear,
+    required this.onRowTap,
+  });
+
+  _CardConfig? get _card {
+    if (selectedCategory == null) return null;
+    try {
+      return _kCards.firstWhere((c) => c.key == selectedCategory);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<DashboardHead> get _heads {
+    if (selectedCategory == null || summary == null) return [];
+    if (selectedCategory == 'revenue') {
+      return [
+        DashboardHead(name: 'OPD', qty: summary!.opd.qty, amount: summary!.opd.amount, drShare: summary!.opd.drShare),
+        DashboardHead(name: 'Consultation', qty: summary!.consultation.qty, amount: summary!.consultation.amount, drShare: summary!.consultation.drShare),
+        DashboardHead(name: 'Emergency', qty: summary!.emergency.qty, amount: summary!.emergency.amount, drShare: summary!.emergency.drShare),
+        DashboardHead(name: 'Laboratory', qty: summary!.lab.qty, amount: summary!.lab.amount, drShare: summary!.lab.drShare),
+        DashboardHead(name: 'Doctor Share (deducted)', qty: 0, amount: -summary!.revenue.drShare),
+        DashboardHead(name: 'Expenses (deducted)', qty: summary!.expenses.qty, amount: -summary!.revenue.expenses),
+      ];
+    }
+    return summary!.heads[selectedCategory!] ?? [];
+  }
+
+  bool get _isConsult => selectedCategory == 'consultation';
+
+  @override
+  Widget build(BuildContext context) {
+    final card = _card;
+    final heads = _heads;
+    final totalQty = heads.fold<int>(0, (s, h) => s + h.qty);
+    final totalAmount = heads.fold<double>(0, (s, h) => s + h.amount);
+    final totalDrShare = heads.fold<double>(0, (s, h) => s + h.drShare);
+
+    final sortedHeads = [...heads];
+    if (_isConsult) {
+      sortedHeads.sort((a, b) {
+        final aName = a.name.replaceFirst(RegExp(r'^(Dr|Doctor)\.?\s+', caseSensitive: false), '').toLowerCase();
+        final bName = b.name.replaceFirst(RegExp(r'^(Dr|Doctor)\.?\s+', caseSensitive: false), '').toLowerCase();
+        return aName.compareTo(bName);
+      });
+    } else {
+      sortedHeads.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    }
+
     return Container(
-      padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade100, width: 1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade100),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 3)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  title.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.8,
-                    color: Colors.grey.shade500,
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                if (card != null) ...[
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(color: card.accent, shape: BoxShape.circle),
                   ),
-                  overflow: TextOverflow.ellipsis,
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        card != null ? '${card.label} Breakdown' : 'Breakdown',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        card != null
+                            ? '${sortedHeads.length} ${_isConsult ? 'doctors' : 'heads'} · tap a row for records'
+                            : 'Select a card or bar above to view detail',
+                        style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(5),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(7),
-                ),
-                child: Icon(icon, color: color, size: 13),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _AnimatedCounter(
-            targetValue: numericValue,
-            isCurrency: isCurrency,
-            style: TextStyle(
-              fontSize: isCurrency ? 13 : 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-              fontFamily: 'monospace',
-              height: 1.1,
+                if (card != null)
+                  GestureDetector(
+                    onTap: onClear,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Clear',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            style: TextStyle(fontSize: 9, color: Colors.grey.shade400),
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Icon(
-                trendUp ? Icons.arrow_outward_rounded : Icons.south_east_rounded,
-                size: 11,
-                color: trendUp ? const Color(0xFF10B981) : const Color(0xFFF43F5E),
-              ),
-              const SizedBox(width: 3),
-              Text(
-                trend,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: trendUp ? const Color(0xFF10B981) : const Color(0xFFF43F5E),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // Content
+          if (card == null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Column(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.ads_click_rounded, color: Colors.grey.shade300, size: 20),
+                    ),
+                    const SizedBox(height: 8),
+                    Text('No category selected',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Tap any card or bar above to see the full breakdown.',
+                      style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ] else if (sortedHeads.isEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+              child: Center(
+                child: Text(
+                  'No ${card.label.toLowerCase()} records in this period.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              color: Colors.white,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      _isConsult ? 'DOCTOR' : 'HEAD',
+                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text('QTY', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8), textAlign: TextAlign.right),
+                  ),
+                  SizedBox(
+                    width: 80,
+                    child: Text('AMOUNT', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8), textAlign: TextAlign.right),
+                  ),
+                  if (_isConsult)
+                    SizedBox(
+                      width: 72,
+                      child: Text('DR. SHARE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8), textAlign: TextAlign.right),
+                    ),
+                  const SizedBox(width: 14),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFF1F5F9)),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: EdgeInsets.zero,
+                itemCount: sortedHeads.length,
+                separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFF8FAFC)),
+                itemBuilder: (context, i) {
+                  final h = sortedHeads[i];
+                  return InkWell(
+                    onTap: () => onRowTap(h),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    h.name,
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(
+                            width: 40,
+                            child: Text(
+                              h.qty.toString(),
+                              style: TextStyle(fontSize: 10, color: Colors.grey.shade500, fontFamily: 'monospace'),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                          SizedBox(
+                            width: 80,
+                            child: Text(
+                              _money(h.amount),
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF0F172A), fontFamily: 'monospace'),
+                              textAlign: TextAlign.right,
+                            ),
+                          ),
+                          if (_isConsult)
+                            SizedBox(
+                              width: 72,
+                              child: Text(
+                                _money(h.drShare),
+                                style: const TextStyle(fontSize: 10, color: Color(0xFFE11D48), fontFamily: 'monospace'),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                          const SizedBox(width: 4),
+                          Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey.shade300),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFE2E8F0)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    flex: 3,
+                    child: Text('TOTAL', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF64748B), letterSpacing: 0.6)),
+                  ),
+                  SizedBox(
+                    width: 40,
+                    child: Text(totalQty.toString(), style: const TextStyle(fontSize: 10, color: Color(0xFF334155), fontFamily: 'monospace'), textAlign: TextAlign.right),
+                  ),
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      _money(totalAmount),
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF0F172A), fontFamily: 'monospace'),
+                      textAlign: TextAlign.right,
+                    ),
+                  ),
+                  if (_isConsult)
+                    SizedBox(
+                      width: 72,
+                      child: Text(
+                        _money(totalDrShare),
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFE11D48), fontFamily: 'monospace'),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                  const SizedBox(width: 14),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -213,61 +887,657 @@ class _SummaryCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-//  EXPENSE BAR WIDGET
+//  HEAD DETAIL MODAL (matches React HeadDetailModal)
 // ─────────────────────────────────────────────
-class _ExpenseBar extends StatelessWidget {
-  final String name;
-  final double value;
-  final double total;
-  final Color color;
+class _HeadDetailDialog extends StatefulWidget {
+  final String category;
+  final String label;
+  final Color accent;
+  final String head;
+  final DateTime dateFrom;
+  final DateTime dateTo;
+  final String shift;
 
-  const _ExpenseBar({
-    required this.name,
-    required this.value,
-    required this.total,
-    required this.color,
+  const _HeadDetailDialog({
+    required this.category,
+    required this.label,
+    required this.accent,
+    required this.head,
+    required this.dateFrom,
+    required this.dateTo,
+    required this.shift,
   });
 
   @override
+  State<_HeadDetailDialog> createState() => _HeadDetailDialogState();
+}
+
+class _HeadDetailDialogState extends State<_HeadDetailDialog> {
+  int _page = 1;
+  static const int _pageSize = 50;
+  bool _loading = false;
+  String? _error;
+  int _total = 0;
+  List<dynamic> _rows = [];
+
+  bool get _isConsult => widget.category == 'consultation';
+  bool get _isExpense => widget.category == 'expenses';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDetail();
+  }
+
+  Future<void> _fetchDetail() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final token = await AuthStorageService().getToken();
+      final fromStr = DateFormat('yyyy-MM-dd').format(widget.dateFrom);
+      final toStr = DateFormat('yyyy-MM-dd').format(widget.dateTo);
+      final shiftParam = widget.shift == 'All' ? '' : '&shift=${widget.shift}';
+      final encodedHead = Uri.encodeComponent(widget.head);
+      final url = '${GlobalApi.baseUrl}/reports/management-dashboard/detail?startDate=$fromStr&endDate=$toStr$shiftParam&category=${widget.category}&head=$encodedHead&page=$_page&pageSize=$_pageSize';
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] != null) {
+          final data = json['data'];
+          if (mounted) {
+            setState(() {
+              _total = data['total'] ?? 0;
+              _rows = data['rows'] ?? [];
+              _loading = false;
+            });
+          }
+          return;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _error = 'Could not load records.';
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Network error: $e';
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  double _parseDouble(dynamic val) {
+    if (val == null) return 0.0;
+    if (val is num) return val.toDouble();
+    return double.tryParse(val.toString()) ?? 0.0;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final pct = total > 0 ? (value / total) : 0.0;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(name,
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                overflow: TextOverflow.ellipsis),
+    final totalPages = (_total / _pageSize).ceil().clamp(1, 9999);
+    final firstOnPage = _total == 0 ? 0 : (_page - 1) * _pageSize + 1;
+    final lastOnPage = (_page * _pageSize).clamp(0, _total);
+
+    final pageTotalAmount = _rows.fold<double>(0, (s, r) => s + _parseDouble(r['amount']));
+    final pageTotalDrShare = _rows.fold<double>(0, (s, r) => s + _parseDouble(r['dr_share']));
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 800),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 30,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Dialog Header ──
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(color: widget.accent, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.head,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0F172A),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${widget.label} · $_total record${_total == 1 ? '' : 's'} · ${DateFormat('d MMM yyyy').format(widget.dateFrom)} – ${DateFormat('d MMM yyyy').format(widget.dateTo)}${widget.shift != 'All' ? ' · ${widget.shift} shift' : ''}',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close_rounded, size: 20, color: Colors.grey.shade600),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Dialog Body ──
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.55,
+                minHeight: 180,
+              ),
+              child: _loading
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24.0),
+                        child: CustomLoader(size: 45, color: _teal),
+                      ),
+                    )
+                  : _error != null
+                      ? Center(child: Text(_error!, style: const TextStyle(color: Color(0xFFE11D48), fontSize: 12)))
+                      : _rows.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No records found.',
+                                style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                              ),
+                            )
+                          : Scrollbar(
+                              thumbVisibility: true,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: SingleChildScrollView(
+                                  child: DataTable(
+                                    headingRowHeight: 34,
+                                    dataRowMinHeight: 36,
+                                    dataRowMaxHeight: 44,
+                                    horizontalMargin: 16,
+                                    columnSpacing: 18,
+                                    headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
+                                    columns: [
+                                      const DataColumn(label: Text('#', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      const DataColumn(label: Text('DATE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      const DataColumn(label: Text('TIME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      DataColumn(label: Text(_isExpense ? 'VOUCHER' : 'MR NO', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      DataColumn(label: Text(_isExpense ? 'RECORDED BY' : 'PATIENT', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      DataColumn(label: Text(_isExpense ? 'EXPENSE' : 'SERVICE', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      const DataColumn(label: Text('DETAIL', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      const DataColumn(label: Text('SHIFT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      const DataColumn(numeric: true, label: Text('AMOUNT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))),
+                                      if (_isConsult)
+                                        const DataColumn(numeric: true, label: Text('DR. SHARE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFFE11D48)))),
+                                    ],
+                                    rows: List.generate(_rows.length, (i) {
+                                      final r = _rows[i];
+                                      final rowIdx = firstOnPage + i;
+                                      final date = r['date']?.toString() ?? '—';
+                                      final time = r['time']?.toString();
+                                      final refOrMr = (_isExpense ? r['ref'] : r['mr_number'])?.toString() ?? '—';
+                                      final party = r['party']?.toString() ?? '—';
+                                      final service = r['service']?.toString() ?? '—';
+                                      final detail = r['detail']?.toString() ?? '—';
+                                      final shift = r['shift']?.toString() ?? '—';
+                                      final amount = _parseDouble(r['amount']);
+                                      final drShare = _parseDouble(r['dr_share']);
+
+                                      return DataRow(
+                                        cells: [
+                                          DataCell(Text(rowIdx.toString(), style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontFamily: 'monospace'))),
+                                          DataCell(Text(date, style: const TextStyle(fontSize: 11, color: Color(0xFF334155)))),
+                                          DataCell(Text(time != null && time.isNotEmpty ? _format12h(time) : '—', style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
+                                          DataCell(Text(refOrMr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1E293B), fontFamily: 'monospace'))),
+                                          DataCell(Text(party, style: const TextStyle(fontSize: 11, color: Color(0xFF334155)))),
+                                          DataCell(Text(service, style: const TextStyle(fontSize: 11, color: Color(0xFF475569)))),
+                                          DataCell(
+                                            ConstrainedBox(
+                                              constraints: const BoxConstraints(maxWidth: 160),
+                                              child: Text(detail, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)), overflow: TextOverflow.ellipsis),
+                                            ),
+                                          ),
+                                          DataCell(
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(4)),
+                                              child: Text(shift, style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+                                            ),
+                                          ),
+                                          DataCell(Text(_money(amount), style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), fontFamily: 'monospace'))),
+                                          if (_isConsult)
+                                            DataCell(Text(_money(drShare), style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFFE11D48), fontFamily: 'monospace'))),
+                                        ],
+                                      );
+                                    }),
+                                  ),
+                                ),
+                              ),
+                            ),
+            ),
+
+            // ── Dialog Footer (Pagination & Page Totals) ──
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+                border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      _total == 0
+                          ? 'No records'
+                          : 'Showing $firstOnPage–$lastOnPage of $_total · Total: PKR ${_money(pageTotalAmount)}${_isConsult ? ' · Dr: PKR ${_money(pageTotalDrShare)}' : ''}',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: _page > 1 && !_loading
+                            ? () {
+                                setState(() => _page--);
+                                _fetchDetail();
+                              }
+                            : null,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _page > 1 ? Colors.white : Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.chevron_left_rounded, size: 14, color: _page > 1 ? Colors.black87 : Colors.grey.shade400),
+                              Text('Prev', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _page > 1 ? Colors.black87 : Colors.grey.shade400)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$_page / $totalPages',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF334155), fontFamily: 'monospace'),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _page < totalPages && !_loading
+                            ? () {
+                                setState(() => _page++);
+                                _fetchDetail();
+                              }
+                            : null,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _page < totalPages ? Colors.white : Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Text('Next', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _page < totalPages ? Colors.black87 : Colors.grey.shade400)),
+                              Icon(Icons.chevron_right_rounded, size: 14, color: _page < totalPages ? Colors.black87 : Colors.grey.shade400),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  ATTENDANCE PANEL (matches React AttendancePanel)
+// ─────────────────────────────────────────────
+class _AttendancePanel extends StatefulWidget {
+  const _AttendancePanel();
+
+  @override
+  State<_AttendancePanel> createState() => _AttendancePanelState();
+}
+
+class _AttendancePanelState extends State<_AttendancePanel> {
+  bool _showAll = false;
+
+  ({Color bg, Color text, String label}) _statusTone(AttendanceRecord r) {
+    if (r.status == 'Absent') return (bg: const Color(0xFFFFF1F2), text: const Color(0xFFBE123C), label: 'Absent');
+    if (r.status == 'Leave') return (bg: const Color(0xFFFFFBEB), text: const Color(0xFFB45309), label: 'Leave');
+    if (r.status == 'Half Day') return (bg: const Color(0xFFFFF7ED), text: const Color(0xFFC2410C), label: 'Half Day');
+    if (r.lateMinutes > 0) return (bg: const Color(0xFFFEFCE8), text: const Color(0xFF92400E), label: 'Late');
+    if (r.status == 'Holiday' || r.status == 'Weekly Off') {
+      return (bg: const Color(0xFFF8FAFC), text: const Color(0xFF64748B), label: r.status);
+    }
+    return (bg: const Color(0xFFECFDF5), text: const Color(0xFF065F46), label: 'Present');
+  }
+
+  String _lateLabel(int minutes) {
+    if (minutes <= 0) return '—';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return h > 0 ? '${h}h ${m}m' : '${m}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<DashboardProvider>(
+      builder: (context, prov, _) {
+        final records = prov.attendanceRecords;
+        final exceptions = records.where((r) => r.isException).length;
+        final visible = _showAll ? records : records.take(8).toList();
+
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.grey.shade100),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 3)),
+            ],
           ),
-          Expanded(
-            child: Stack(
-              children: [
-                Container(
-                  height: 6,
-                  decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(3)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Attendance',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                          ),
+                          const SizedBox(height: 2),
+                          if (records.isNotEmpty)
+                            RichText(
+                              text: TextSpan(
+                                style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
+                                children: [
+                                  TextSpan(text: DateFormat('d MMM yyyy').format(prov.dateFrom)),
+                                  const TextSpan(text: ' · '),
+                                  TextSpan(
+                                    text: '$exceptions needing attention',
+                                    style: TextStyle(
+                                      color: exceptions > 0 ? const Color(0xFFE11D48) : const Color(0xFF059669),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  TextSpan(text: ' of ${records.length}'),
+                                ],
+                              ),
+                            )
+                          else
+                            Text(DateFormat('d MMM yyyy').format(prov.dateFrom),
+                                style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
+                        ],
+                      ),
+                    ),
+                    if (prov.isAttendanceLoading)
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.grey.shade300),
+                      ),
+                  ],
                 ),
-                FractionallySizedBox(
-                  widthFactor: pct,
+              ),
+              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+              // Table header
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Row(
+                  children: [
+                    SizedBox(width: 38, child: Text('ID', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8))),
+                    Expanded(child: Text('NAME', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8))),
+                    SizedBox(width: 46, child: Text('IN', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8), textAlign: TextAlign.center)),
+                    SizedBox(width: 46, child: Text('OUT', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8), textAlign: TextAlign.center)),
+                    SizedBox(width: 34, child: Text('LATE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.grey.shade400, letterSpacing: 0.8), textAlign: TextAlign.right)),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+              // Rows
+              if (prov.attendanceError != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text(prov.attendanceError!, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+                  ),
+                )
+              else if (!prov.isAttendanceLoading && records.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text('No attendance recorded for this day.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+                  ),
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    itemCount: visible.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFF8FAFC)),
+                    itemBuilder: (context, i) {
+                      final r = visible[i];
+                      final tone = _statusTone(r);
+                      return Container(
+                        color: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 38,
+                              child: Text(
+                                r.empId.isEmpty ? '—' : r.empId,
+                                style: const TextStyle(fontSize: 9.5, color: Color(0xFF64748B), fontFamily: 'monospace'),
+                              ),
+                            ),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: tone.bg,
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: tone.text.withValues(alpha: 0.15)),
+                                    ),
+                                    child: Text(tone.label, style: TextStyle(fontSize: 7.5, fontWeight: FontWeight.w700, color: tone.text)),
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    r.employeeName.isEmpty ? '—' : r.employeeName,
+                                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(
+                              width: 46,
+                              child: Text(
+                                r.timeIn != null ? _format12h(r.timeIn!.substring(0, r.timeIn!.length > 5 ? 5 : r.timeIn!.length)) : '—',
+                                style: const TextStyle(fontSize: 9.5, color: Color(0xFF475569), fontFamily: 'monospace'),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 46,
+                              child: Text(
+                                r.timeOut != null ? _format12h(r.timeOut!.substring(0, r.timeOut!.length > 5 ? 5 : r.timeOut!.length)) : '—',
+                                style: const TextStyle(fontSize: 9.5, color: Color(0xFF475569), fontFamily: 'monospace'),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 34,
+                              child: Text(
+                                _lateLabel(r.lateMinutes),
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: r.lateMinutes > 0 ? FontWeight.w700 : FontWeight.w400,
+                                  color: r.lateMinutes > 0 ? const Color(0xFFB45309) : Colors.grey.shade300,
+                                  fontFamily: 'monospace',
+                                ),
+                                textAlign: TextAlign.right,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+              // Show all toggle
+              if (records.length > 8) ...[
+                const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                GestureDetector(
+                  onTap: () => setState(() => _showAll = !_showAll),
                   child: Container(
-                    height: 6,
-                    decoration: BoxDecoration(
-                        color: color, borderRadius: BorderRadius.circular(3)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    alignment: Alignment.center,
+                    child: Text(
+                      _showAll ? 'Show exceptions only' : 'Show all ${records.length}',
+                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                    ),
                   ),
                 ),
               ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+//  TASKS PANEL (placeholder, matches React TasksPanel)
+// ─────────────────────────────────────────────
+class _TasksPanel extends StatelessWidget {
+  const _TasksPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade100),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 3)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Tasks',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                const SizedBox(height: 2),
+                Text('Task management', style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
+              ],
             ),
           ),
-          const SizedBox(width: 12),
-          Text('PKR ${NumberFormat('#,###').format(value)}',
-              style: const TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-          const SizedBox(width: 8),
-          Text('${(pct * 100).round()}%',
-              style: TextStyle(fontSize: 10, color: Colors.grey.shade400)),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 28),
+            child: Center(
+              child: Column(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(Icons.checklist_rounded, color: Colors.grey.shade300, size: 18),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Nothing here yet',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade500)),
+                  const SizedBox(height: 3),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      'Assigned tasks will appear here once task management is part of the system.',
+                      style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -313,7 +1583,7 @@ class _DoctorCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(screenSize.width * 0.04),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.grey.withOpacity(0.1),
+                    color: Colors.grey.withValues(alpha: 0.1),
                     blurRadius: 8,
                     offset: const Offset(0, 2)),
               ],
@@ -351,7 +1621,7 @@ class _DoctorCard extends StatelessWidget {
                                   horizontal: screenSize.width * 0.02,
                                   vertical: screenSize.height * 0.004),
                               decoration: BoxDecoration(
-                                color: primaryColor.withOpacity(0.1),
+                                color: primaryColor.withValues(alpha: 0.1),
                                 borderRadius:
                                 BorderRadius.circular(screenSize.width * 0.02),
                               ),
@@ -412,7 +1682,7 @@ class _DoctorCard extends StatelessWidget {
                       alignment: Alignment.bottomCenter,
                       placeholder: (context, _) =>
                           _buildAvatarFallback(screenSize, isChild: true),
-                      errorWidget: (context, _, __) =>
+                      errorWidget: (context, _, _) =>
                           _buildAvatarFallback(screenSize, isChild: true),
                     );
                   }
@@ -431,7 +1701,7 @@ class _DoctorCard extends StatelessWidget {
       width: screenSize.width * 0.28,
       height: screenSize.width * 0.28,
       decoration: BoxDecoration(
-        color: doctor.avatarColor.withOpacity(0.1),
+        color: doctor.avatarColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(screenSize.width * 0.05),
       ),
       child: Center(
@@ -468,212 +1738,7 @@ class _DoctorCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-//  LEGEND DOT  (reusable)
-// ─────────────────────────────────────────────
-class _LegendDot extends StatelessWidget {
-  final Color color;
-  final String label;
-
-  const _LegendDot({required this.color, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 4),
-        Text(label,
-            style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-//  GROUPED BAR CHART  ← NEW (from Orders screen style)
-//  3 bars per shift: OPD Revenue | Consult Revenue | Patients
-//  X-axis labels: Morning · Evening · Night
-// ─────────────────────────────────────────────
-class _ShiftGroupedBarChart extends StatelessWidget {
-  final DashboardProvider prov;
-
-  const _ShiftGroupedBarChart({required this.prov});
-
-  static const _shifts = ['Morning', 'Evening', 'Night'];
-
-  // Normalise PKR revenue to a 0-55 display scale so bars look proportional.
-  // Patients are shown as-is (usually small numbers, clamped to 55).
-  List<List<double>> _buildData() {
-    double maxRev = 1;
-    for (final s in _shifts) {
-      final opd = (prov.shiftOpdRevenue[s] ?? 0).toDouble();
-      final consult = (prov.shiftConsultRevenue[s] ?? 0).toDouble();
-      if (opd > maxRev) maxRev = opd;
-      if (consult > maxRev) maxRev = consult;
-    }
-
-    return List.generate(_shifts.length, (i) {
-      final s = _shifts[i];
-      final opd = (prov.shiftOpdRevenue[s] ?? 0).toDouble();
-      final consult = (prov.shiftConsultRevenue[s] ?? 0).toDouble();
-      final pts = (prov.shiftPatientCount[s] ?? 0).toDouble();
-      return [
-        (opd / maxRev) * 55,
-        (consult / maxRev) * 55,
-        pts.clamp(0, 55).toDouble(),
-      ];
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final data = _buildData();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ── Legend (matches Orders screen style) ─────────────────────────────
-        Row(
-          children: const [
-            _LegendDot(color: Color(0xFF10B981), label: 'OPD Rev'),
-            SizedBox(width: 12),
-            _LegendDot(color: Colors.indigo, label: 'Consult Rev'),
-            SizedBox(width: 12),
-            _LegendDot(color: Color(0xFFF59E0B), label: 'Patients'),
-          ],
-        ),
-        const SizedBox(height: 8),
-
-        // ── Bar Chart ─────────────────────────────────────────────────────────
-        SizedBox(
-          height: 200,
-          child: BarChart(
-            BarChartData(
-              maxY: 60,
-              minY: 0,
-              alignment: BarChartAlignment.spaceAround,
-
-              // Grid — horizontal lines only (matches Orders screen)
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                horizontalInterval: 10,
-                getDrawingHorizontalLine: (_) => FlLine(
-                  color: Colors.grey.shade100,
-                  strokeWidth: 1,
-                ),
-              ),
-
-              borderData: FlBorderData(
-                show: true,
-                border: Border.all(color: Colors.grey.shade100),
-              ),
-
-              titlesData: FlTitlesData(
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 28,
-                    interval: 10,
-                    getTitlesWidget: (value, meta) => Text(
-                      value.toInt().toString(),
-                      style: const TextStyle(
-                          fontSize: 9, color: Color(0xFF94A3B8)),
-                    ),
-                  ),
-                ),
-                rightTitles:
-                AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                topTitles:
-                AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 28,
-                    getTitlesWidget: (value, meta) {
-                      final i = value.toInt();
-                      if (i < 0 || i >= _shifts.length) return const SizedBox();
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          _shifts[i],
-                          style: const TextStyle(
-                              fontSize: 9, color: Color(0xFF94A3B8)),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-
-              // Tooltip shows actual PKR values (not normalised display values)
-              barTouchData: BarTouchData(
-                touchTooltipData: BarTouchTooltipData(
-                  getTooltipColor: (_) => Colors.black87,
-                  tooltipRoundedRadius: 8,
-                  getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                    final shift = _shifts[groupIndex];
-                    final labels = ['OPD', 'Consult', 'Patients'];
-                    final rawValues = [
-                      prov.shiftOpdRevenue[shift] ?? 0,
-                      prov.shiftConsultRevenue[shift] ?? 0,
-                      prov.shiftPatientCount[shift] ?? 0,
-                    ];
-                    final display = rodIndex < 2
-                        ? 'PKR ${NumberFormat('#,###').format(rawValues[rodIndex])}'
-                        : rawValues[rodIndex].toString();
-                    return BarTooltipItem(
-                      '${labels[rodIndex]}\n$display',
-                      const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600),
-                    );
-                  },
-                ),
-              ),
-
-              // 3 rods per group — same structure as Orders screen
-              barGroups: List.generate(_shifts.length, (i) {
-                return BarChartGroupData(
-                  x: i,
-                  barsSpace: 4,
-                  barRods: [
-                    BarChartRodData(
-                      toY: data[i][0],
-                      width: 10,
-                      color: const Color(0xFF10B981),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    BarChartRodData(
-                      toY: data[i][1],
-                      width: 10,
-                      color: Colors.indigo,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                    BarChartRodData(
-                      toY: data[i][2],
-                      width: 10,
-                      color: const Color(0xFFF59E0B),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ],
-                );
-              }),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-//  DASHBOARD BODY
+//  DASHBOARD BODY (with LayoutBuilder + MediaQuery)
 // ─────────────────────────────────────────────
 class _DashboardBody extends StatefulWidget {
   const _DashboardBody();
@@ -684,7 +1749,6 @@ class _DashboardBody extends StatefulWidget {
 
 class _DashboardBodyState extends State<_DashboardBody> {
   static const Color primaryColor = Color(0xFF0D9488);
-  final DateFormat _dateFormat = DateFormat('EEEE, d MMMM yyyy');
 
   @override
   void initState() {
@@ -694,9 +1758,49 @@ class _DashboardBodyState extends State<_DashboardBody> {
       if (!mounted) return;
       prov.resetToToday();
       prov.resetLoading();
-      prov.fetchAvailableShifts(prov.selectedDate);
-      prov.fetchCalendarData(prov.selectedDate);
+      prov.refresh();
     });
+  }
+
+  String _formatRangeLabel(DateTime from, DateTime to) {
+    final fmtDay = DateFormat('yyyy-MM-dd');
+    if (fmtDay.format(from) == fmtDay.format(to)) {
+      return DateFormat('EEEE, d MMMM yyyy').format(from);
+    }
+    return '${DateFormat('d MMM yyyy').format(from)} – ${DateFormat('d MMM yyyy').format(to)}';
+  }
+
+  void _handleBreakdownRowTap(DashboardHead head, DashboardProvider prov) {
+    if (prov.selectedCategory == 'revenue') {
+      final target = _kCards.cast<_CardConfig?>().firstWhere(
+        (c) => c?.key != 'revenue' && (c?.label.toLowerCase() == head.name.toLowerCase()),
+        orElse: () => null,
+      );
+      if (target != null) {
+        prov.setSelectedCategory(target.key);
+      }
+      return;
+    }
+
+    final card = _kCards.cast<_CardConfig?>().firstWhere(
+      (c) => c?.key == prov.selectedCategory,
+      orElse: () => null,
+    );
+    if (card == null) return;
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.35),
+      builder: (context) => _HeadDetailDialog(
+        category: prov.selectedCategory!,
+        label: card.label,
+        accent: card.accent,
+        head: head.name,
+        dateFrom: prov.dateFrom,
+        dateTo: prov.dateTo,
+        shift: prov.selectedShiftType,
+      ),
+    );
   }
 
   @override
@@ -704,411 +1808,591 @@ class _DashboardBodyState extends State<_DashboardBody> {
     final dashboardProv = Provider.of<DashboardProvider>(context);
     final consultationProv = Provider.of<ConsultationProvider>(context);
 
-    return RefreshIndicator(
-      onRefresh: () => dashboardProv.refresh(),
-      color: _teal,
-      child: CustomPageTransition(
-        child: dashboardProv.isLoading
-            ? Center(
-            key: const ValueKey('loader'),
-            child: CustomLoader(size: 50, color: _teal))
-            : SingleChildScrollView(
-          key: const ValueKey('content'),
-          physics: const AlwaysScrollableScrollPhysics(
-              parent: BouncingScrollPhysics()),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── Header ───────────────────────────────────────────────
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      _dateFormat.format(dashboardProv.selectedDate),
-                      style: TextStyle(
-                          color: Colors.grey.shade500, fontSize: 13),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.offline_pin_rounded,
-                        color: _teal),
-                    onPressed: () => Navigator.pushReplacement(
-                      context,
-                      PageRouteBuilder(
-                        pageBuilder: (context, _, __) =>
-                        const OfflineDashboardScreen(),
-                        transitionDuration: Duration.zero,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenWidth = MediaQuery.of(context).size.width;
+        final isWide = constraints.maxWidth >= 960;
+        final isTablet = constraints.maxWidth >= 600 && constraints.maxWidth < 960;
 
-              // ── Date + shift filters ──────────────────────────────────
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: dashboardProv.selectedDate,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2030),
-                        );
-                        if (picked != null)
-                          dashboardProv.setSelectedDate(picked);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.grey.shade100),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+        return RefreshIndicator(
+          onRefresh: () => dashboardProv.refresh(),
+          color: _teal,
+          child: CustomPageTransition(
+            child: dashboardProv.isLoading
+                ? Center(
+                    key: const ValueKey('loader'),
+                    child: CustomLoader(size: 50, color: _teal))
+                : SingleChildScrollView(
+                    key: const ValueKey('content'),
+                    physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics()),
+                    padding: EdgeInsets.symmetric(
+                        horizontal: screenWidth > 800 ? 24 : 16,
+                        vertical: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // ── Header & Range Label ────────────────────────────
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Icon(Icons.calendar_today_rounded,
-                                size: 14, color: Colors.grey.shade400),
-                            const SizedBox(width: 8),
-                            Text(
-                              DateFormat('dd/MM/yyyy')
-                                  .format(dashboardProv.selectedDate),
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF334155)),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Dashboard',
+                                    style: TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0F172A),
+                                        letterSpacing: -0.5),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: [
+                                      Text(
+                                        _formatRangeLabel(dashboardProv.dateFrom, dashboardProv.dateTo),
+                                        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                                      ),
+                                      if (dashboardProv.selectedShiftType != 'All')
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF0F172A),
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Text(
+                                            '${dashboardProv.selectedShiftType} shift only',
+                                            style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                          ),
+                                        )
+                                      else if (dashboardProv.runningShift != null)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFECFDF5),
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Container(
+                                                width: 5,
+                                                height: 5,
+                                                decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                '${dashboardProv.runningShift} shift running',
+                                                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF047857)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // IconButton(
+                            //   icon: const Icon(Icons.offline_pin_rounded, color: _teal),
+                            //   tooltip: 'Offline Dashboard',
+                            //   onPressed: () => Navigator.pushReplacement(
+                            //     context,
+                            //     PageRouteBuilder(
+                            //       pageBuilder: (context, _, _) => const OfflineDashboardScreen(),
+                            //       transitionDuration: Duration.zero,
+                            //     ),
+                            //   ),
+                            // ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+
+                        // ── All Filter Controls (Preset / DateFrom / DateTo / Shift / Refresh) ──
+                        FadeInDown(
+                          duration: const Duration(milliseconds: 350),
+                          child: _buildFilterBar(dashboardProv),
+                        ),
+                        const SizedBox(height: 10),
+
+                        // ── Six Clickable Stat Cards Grid ───────────────────
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 400),
+                          delay: const Duration(milliseconds: 50),
+                          child: _buildStatCardsGrid(dashboardProv, isWide, isTablet),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // ── Performance Category Card with Breakdown Card Directly Below It ──
+                        if (isWide) ...[
+                          // Wide Screen (Desktop): 2-column layout
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Left column: Performance Card + Breakdown directly under it
+                              Expanded(
+                                flex: 5,
+                                child: Column(
+                                  children: [
+                                    _buildGlassPanel(
+                                      child: _CategoryBarChart(
+                                        summary: dashboardProv.summary,
+                                        selectedCategory: dashboardProv.selectedCategory,
+                                        onSelect: (key) => dashboardProv.setSelectedCategory(key),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    // ⬇️ Breakdown Card directly under performance card
+                                    _BreakdownPanel(
+                                      selectedCategory: dashboardProv.selectedCategory,
+                                      summary: dashboardProv.summary,
+                                      onClear: () => dashboardProv.setSelectedCategory(null),
+                                      onRowTap: (h) => _handleBreakdownRowTap(h, dashboardProv),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              // Right column: Monthly Appointments Calendar
+                              Expanded(
+                                flex: 3,
+                                child: _buildCalendarPanel(dashboardProv),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          // Mobile / Tablet: Stacked layout
+                          _buildGlassPanel(
+                            child: _CategoryBarChart(
+                              summary: dashboardProv.summary,
+                              selectedCategory: dashboardProv.selectedCategory,
+                              onSelect: (key) => dashboardProv.setSelectedCategory(key),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          // ⬇️ Breakdown Card directly under Performance card on Mobile
+                          _BreakdownPanel(
+                            selectedCategory: dashboardProv.selectedCategory,
+                            summary: dashboardProv.summary,
+                            onClear: () => dashboardProv.setSelectedCategory(null),
+                            onRowTap: (h) => _handleBreakdownRowTap(h, dashboardProv),
+                          ),
+                          const SizedBox(height: 16),
+                          _buildCalendarPanel(dashboardProv),
+                        ],
+                        const SizedBox(height: 20),
+
+                        // ── Attendance & Tasks Panels (Adaptive Row or Column) ──
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 500),
+                          delay: const Duration(milliseconds: 300),
+                          child: isWide || isTablet
+                              ? Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: const [
+                                    Expanded(flex: 3, child: _AttendancePanel()),
+                                    SizedBox(width: 16),
+                                    Expanded(flex: 2, child: _TasksPanel()),
+                                  ],
+                                )
+                              : Column(
+                                  children: const [
+                                    _AttendancePanel(),
+                                    SizedBox(height: 16),
+                                    _TasksPanel(),
+                                  ],
+                                ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // ── Revenue Trend ───────────────────────────────────
+                        FadeInUp(
+                          duration: const Duration(milliseconds: 500),
+                          delay: const Duration(milliseconds: 400),
+                          child: _buildGlassPanel(
+                            title: 'Revenue Trend',
+                            subtitle: 'Intraday estimate',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _AnimatedCounter(
+                                  targetValue: dashboardProv.totalOpdRevenue,
+                                  isCurrency: true,
+                                  style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'monospace'),
+                                ),
+                                const SizedBox(height: 10),
+                                SizedBox(
+                                  height: 120,
+                                  child: SfCartesianChart(
+                                    key: ValueKey('trend_${dashboardProv.dateFrom}'),
+                                    margin: EdgeInsets.zero,
+                                    plotAreaBorderWidth: 0,
+                                    trackballBehavior: TrackballBehavior(
+                                      enable: true,
+                                      activationMode: ActivationMode.singleTap,
+                                      tooltipDisplayMode: TrackballDisplayMode.nearestPoint,
+                                      tooltipSettings: const InteractiveTooltip(
+                                        enable: true,
+                                        color: Colors.white,
+                                        textStyle: TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.bold),
+                                        format: 'point.x : PKR point.y',
+                                        borderColor: Colors.black12,
+                                        borderWidth: 1,
+                                      ),
+                                      lineType: TrackballLineType.vertical,
+                                      lineColor: Colors.grey.shade300,
+                                      lineWidth: 1,
+                                      markerSettings: const TrackballMarkerSettings(
+                                        markerVisibility: TrackballVisibilityMode.visible,
+                                        height: 10,
+                                        width: 10,
+                                        borderWidth: 2,
+                                        borderColor: Colors.white,
+                                      ),
+                                    ),
+                                    primaryXAxis: const CategoryAxis(
+                                      majorGridLines: MajorGridLines(width: 0),
+                                      axisLine: AxisLine(width: 0),
+                                      majorTickLines: MajorTickLines(size: 0),
+                                      labelStyle: TextStyle(fontSize: 9, color: Color(0xFF94A3B8)),
+                                    ),
+                                    primaryYAxis: const NumericAxis(
+                                      isVisible: false,
+                                      minimum: 0,
+                                    ),
+                                    series: <CartesianSeries>[
+                                      AreaSeries<ChartDataPoint, String>(
+                                        animationDuration: 800,
+                                        dataSource: dashboardProv.trendData,
+                                        xValueMapper: (ChartDataPoint data, _) => data.x,
+                                        yValueMapper: (ChartDataPoint data, _) => data.y,
+                                        color: const Color(0xFFCBD5E0).withValues(alpha: 0.35),
+                                        borderColor: const Color(0xFF94A3B8),
+                                        borderWidth: 1.5,
+                                      ),
+                                      AreaSeries<ChartDataPoint, String>(
+                                        animationDuration: 800,
+                                        dataSource: dashboardProv.trendData,
+                                        xValueMapper: (ChartDataPoint data, _) => data.x,
+                                        yValueMapper: (ChartDataPoint data, _) => data.y * 0.62,
+                                        color: const Color(0xFF1E293B).withValues(alpha: 0.88),
+                                        borderColor: const Color(0xFF0F172A),
+                                        borderWidth: 2,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // ── Available Doctors ───────────────────────────────
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Available Doctor',
+                                style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87)),
+                            GestureDetector(
+                              onTap: () => Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const ConsultationScreen()),
+                              ),
+                              child: Text('View all',
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      color: primaryColor,
+                                      fontWeight: FontWeight.w600)),
                             ),
                           ],
                         ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Container(
-                      padding:
-                      const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.grey.shade100),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: dashboardProv.selectedShiftType,
-                          isExpanded: true,
-                          style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF334155)),
-                          items: ['All', 'Morning', 'Evening', 'Night']
-                              .map((t) => DropdownMenuItem(
-                              value: t,
-                              child: Text(
-                                  t == 'All' ? 'All Shifts' : t)))
-                              .toList(),
-                          onChanged: (val) =>
-                              dashboardProv.setSelectedShiftType(val!),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              // ── 2×2 summary cards ─────────────────────────────────────
-              GridView.count(
-                padding: const EdgeInsets.only(top: 8, bottom: 16),
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 6,
-                crossAxisSpacing: 6,
-                childAspectRatio: 1.55,
-                children: [
-                  FadeInUp(
-                    duration: const Duration(milliseconds: 400),
-                    delay: const Duration(milliseconds: 100),
-                    child: _SummaryCard(
-                      title: 'OPD Revenue',
-                      numericValue: dashboardProv.totalOpdRevenue,
-                      isCurrency: true,
-                      icon: Icons.attach_money,
-                      color: const Color(0xFF10B981),
-                      trend: '+4.2%',
-                      trendUp: true,
-                      subtitle: 'All OPD services',
-                    ),
-                  ),
-                  FadeInUp(
-                    duration: const Duration(milliseconds: 400),
-                    delay: const Duration(milliseconds: 200),
-                    child: _SummaryCard(
-                      title: 'Consultations',
-                      numericValue: dashboardProv.totalConsultRevenue,
-                      isCurrency: true,
-                      icon: Icons.medical_services_rounded,
-                      color: Colors.indigo,
-                      trend: '+1.8%',
-                      trendUp: true,
-                      subtitle:
-                      '${dashboardProv.totalConsultCount} consultations',
-                    ),
-                  ),
-                  FadeInUp(
-                    duration: const Duration(milliseconds: 400),
-                    delay: const Duration(milliseconds: 300),
-                    child: _SummaryCard(
-                      title: 'Patients',
-                      numericValue:
-                      dashboardProv.totalPatients.toDouble(),
-                      isCurrency: false,
-                      icon: Icons.people_outline_rounded,
-                      color: Colors.cyan.shade600,
-                      trend: '-0.6%',
-                      trendUp: false,
-                      subtitle: 'Total OPD entries',
-                    ),
-                  ),
-                  FadeInUp(
-                    duration: const Duration(milliseconds: 400),
-                    delay: const Duration(milliseconds: 400),
-                    child: _SummaryCard(
-                      title: 'Expenses',
-                      numericValue: dashboardProv.totalExpenses,
-                      isCurrency: true,
-                      icon: Icons.payments_outlined,
-                      color: Colors.amber.shade700,
-                      trend: '+2.1%',
-                      trendUp: false,
-                      subtitle: 'Direct expenses',
-                    ),
-                  ),
-                ],
-              ),
-
-              // ── Revenue by Shift — Grouped Bar Chart ──────────────────
-              FadeInUp(
-                duration: const Duration(milliseconds: 500),
-                delay: const Duration(milliseconds: 500),
-                child: _buildGlassPanel(
-                  title: 'Revenue by Shift',
-                  subtitle: 'OPD · Consultation · Patients',
-                  child: _ShiftGroupedBarChart(prov: dashboardProv),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // ── Monthly Appointments calendar ─────────────────────────
-              FadeInUp(
-                duration: const Duration(milliseconds: 500),
-                delay: const Duration(milliseconds: 600),
-                child: _buildCalendarPanel(dashboardProv),
-              ),
-              const SizedBox(height: 20),
-
-              // ── Revenue Trend (Syncfusion line — unchanged) ───────────
-              FadeInUp(
-                duration: const Duration(milliseconds: 500),
-                delay: const Duration(milliseconds: 700),
-                child: _buildGlassPanel(
-                  title: 'Revenue Trend',
-                  subtitle: 'Intraday estimate',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _AnimatedCounter(
-                        targetValue: dashboardProv.totalOpdRevenue,
-                        isCurrency: true,
-                        style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'monospace'),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 120,
-                        child: SfCartesianChart(
-                          key: ValueKey(
-                              'trend_${dashboardProv.selectedDate}'),
-                          margin: EdgeInsets.zero,
-                          plotAreaBorderWidth: 0,
-                          trackballBehavior: TrackballBehavior(
-                            enable: true,
-                            activationMode: ActivationMode.singleTap,
-                            tooltipDisplayMode: TrackballDisplayMode.nearestPoint,
-                            tooltipSettings: InteractiveTooltip(
-                              enable: true,
-                              color: Colors.white.withOpacity(0.95),
-                              textStyle: const TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.bold),
-                              format: 'point.x : PKR point.y',
-                              borderColor: Colors.black12,
-                              borderWidth: 1,
-                            ),
-                            lineType: TrackballLineType.vertical,
-                            lineColor: Colors.grey.shade300,
-                            lineWidth: 1,
-                            markerSettings: const TrackballMarkerSettings(
-                              markerVisibility: TrackballVisibilityMode.visible,
-                              height: 10,
-                              width: 10,
-                              borderWidth: 2,
-                              borderColor: Colors.white,
+                        const SizedBox(height: 14),
+                        if (consultationProv.isLoading)
+                          const Center(child: CircularProgressIndicator())
+                        else if (consultationProv.doctors.isEmpty)
+                          const Center(child: Text('No doctors available'))
+                        else
+                          FadeInUp(
+                            duration: const Duration(milliseconds: 500),
+                            delay: const Duration(milliseconds: 600),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              padding: EdgeInsets.zero,
+                              itemCount: consultationProv.doctors.length,
+                              itemBuilder: (context, index) {
+                                final doctor = consultationProv.doctors[index];
+                                return _DoctorCard(
+                                  doctor: doctor,
+                                  availableSlots:
+                                  consultationProv.availableSlotsForDoctor(
+                                      doctor.name, DateTime.now()),
+                                  primaryColor: primaryColor,
+                                  onTap: () => _showDialog(
+                                      context, consultationProv, doctor),
+                                );
+                              },
                             ),
                           ),
-                          primaryXAxis: CategoryAxis(
-                            majorGridLines:
-                            const MajorGridLines(width: 0),
-                            axisLine: const AxisLine(width: 0),
-                            majorTickLines:
-                            const MajorTickLines(size: 0),
-                            labelStyle: const TextStyle(
-                                fontSize: 9,
-                                color: Color(0xFF94A3B8)),
-                          ),
-                          primaryYAxis: NumericAxis(
-                            isVisible: false,
-                            minimum: 0,       // ← prevents clipping at the bottom
-                            numberFormat: NumberFormat('#,###'),
-                          ),
-                          series: <CartesianSeries>[
-                            // ── Background light grey area ────────────────────────────────────────
-                            AreaSeries<ChartDataPoint, String>(
-                              animationDuration: 800,
-                              dataSource: dashboardProv.trendData,
-                              xValueMapper: (ChartDataPoint data, _) => data.x,
-                              yValueMapper: (ChartDataPoint data, _) => data.y,
-                              color: const Color(0xFFCBD5E0).withOpacity(0.35),
-                              borderColor: const Color(0xFF94A3B8),
-                              borderWidth: 1.5,
-                            ),
-                            // ── Foreground dark/black area ────────────────────────────────────────
-                            AreaSeries<ChartDataPoint, String>(
-                              animationDuration: 800,
-                              dataSource: dashboardProv.trendData,
-                              xValueMapper: (ChartDataPoint data, _) => data.x,
-                              yValueMapper: (ChartDataPoint data, _) => data.y * 0.62,
-                              color: const Color(0xFF1E293B).withOpacity(0.88),
-                              borderColor: const Color(0xFF0F172A),
-                              borderWidth: 2,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // ── Available Doctors ─────────────────────────────────────
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Available Doctor',
-                      style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87)),
-                  GestureDetector(
-                    onTap: () => Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const ConsultationScreen()),
+                        const SizedBox(height: 120),
+                      ],
                     ),
-                    child: Text('View all',
-                        style: TextStyle(
-                            fontSize: 13,
-                            color: primaryColor,
-                            fontWeight: FontWeight.w600)),
                   ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              if (consultationProv.isLoading)
-                const Center(child: CircularProgressIndicator())
-              else if (consultationProv.doctors.isEmpty)
-                const Center(child: Text('No doctors available'))
-              else
-                FadeInUp(
-                  duration: const Duration(milliseconds: 500),
-                  delay: const Duration(milliseconds: 800),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: EdgeInsets.zero,
-                    itemCount: consultationProv.doctors.length,
-                    itemBuilder: (context, index) {
-                      final doctor = consultationProv.doctors[index];
-                      return _DoctorCard(
-                        doctor: doctor,
-                        availableSlots:
-                        consultationProv.availableSlotsForDoctor(
-                            doctor.name, DateTime.now()),
-                        primaryColor: primaryColor,
-                        onTap: () => _showDialog(
-                            context, consultationProv, doctor),
-                      );
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Filter Bar Widget (Period preset, DateFrom, DateTo, Shift, Refresh) ──
+  Widget _buildFilterBar(DashboardProvider prov) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade100),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          // 1. Period preset dropdown
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Period: ', style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: prov.selectedPreset,
+                    isDense: true,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1E293B)),
+                    items: kRangePresets
+                        .map((p) => DropdownMenuItem(value: p.id, child: Text(p.label)))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) prov.applyPreset(val);
                     },
                   ),
                 ),
-              const SizedBox(height: 120),
-            ],
+              ],
+            ),
           ),
-        ),
+
+          // 2. Date From Picker
+          GestureDetector(
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: prov.dateFrom,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030),
+              );
+              if (picked != null) prov.setDateFrom(picked);
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.calendar_today_rounded, size: 12, color: Colors.grey.shade400),
+                  const SizedBox(width: 6),
+                  Text(
+                    DateFormat('dd/MM/yyyy').format(prov.dateFrom),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // 3. Date To Picker
+          GestureDetector(
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: prov.dateTo,
+                firstDate: prov.dateFrom,
+                lastDate: DateTime(2030),
+              );
+              if (picked != null) prov.setDateTo(picked);
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.event_available_rounded, size: 13, color: Colors.grey.shade400),
+                  const SizedBox(width: 6),
+                  Text(
+                    DateFormat('dd/MM/yyyy').format(prov.dateTo),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // 4. Shift Selector
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: prov.selectedShiftType,
+                isDense: true,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                items: ['All', 'Morning', 'Evening', 'Night', 'Unassigned']
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s == 'All' ? 'All Shifts' : s)))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) prov.setSelectedShiftType(val);
+                },
+              ),
+            ),
+          ),
+
+          // // 5. Refresh Button
+          // GestureDetector(
+          //   onTap: () => prov.refresh(),
+          //   child: Container(
+          //     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          //     decoration: BoxDecoration(
+          //       color: const Color(0xFF0F172A),
+          //       borderRadius: BorderRadius.circular(12),
+          //       boxShadow: [
+          //         BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4, offset: const Offset(0, 1)),
+          //       ],
+          //     ),
+          //     child: Row(
+          //       mainAxisSize: MainAxisSize.min,
+          //       children: [
+          //         Icon(Icons.refresh_rounded, size: 13, color: Colors.white),
+          //         const SizedBox(width: 5),
+          //         const Text('Refresh', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
+          //       ],
+          //     ),
+          //   ),
+          // ),
+        ],
       ),
     );
   }
 
-  // ── Glass panel ───────────────────────────────────────────────────────────
+  // ── Stat Cards Grid LayoutBuilder helper ─────────────────────────────────
+  Widget _buildStatCardsGrid(DashboardProvider prov, bool isWide, bool isTablet) {
+    final int crossAxisCount = isWide ? 6 : (isTablet ? 3 : 2);
+    final double childAspectRatio = isWide ? 1.4 : (isTablet ? 1.6 : 1.55);
+
+    return GridView.builder(
+      shrinkWrap: true,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+        childAspectRatio: childAspectRatio,
+      ),
+      itemCount: _kCards.length,
+      itemBuilder: (context, i) {
+        final card = _kCards[i];
+        final isSelected = prov.selectedCategory == card.key;
+        return _StatCard(
+          card: card,
+          summary: prov.summary,
+          selected: isSelected,
+          onTap: () => prov.setSelectedCategory(card.key),
+        );
+      },
+    );
+  }
+
+  // ── Glass panel wrapper ───────────────────────────────────────────────────
   Widget _buildGlassPanel({
-    required String title,
-    required String subtitle,
+    String? title,
+    String? subtitle,
     Widget? trailing,
     required Widget child,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.grey.shade100),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 15,
-              offset: const Offset(0, 8))
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 12,
+              offset: const Offset(0, 4))
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF475569))),
-                  Text(subtitle,
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade400)),
-                ],
-              ),
-              if (trailing != null) trailing,
-            ],
-          ),
-          const SizedBox(height: 20),
+          if (title != null || trailing != null) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (title != null)
+                      Text(title,
+                          style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF475569))),
+                    if (subtitle != null)
+                      Text(subtitle,
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey.shade400)),
+                  ],
+                ),
+                ?trailing,
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
           child,
         ],
       ),
@@ -1119,34 +2403,46 @@ class _DashboardBodyState extends State<_DashboardBody> {
   Widget _buildCalendarPanel(DashboardProvider prov) {
     return _buildGlassPanel(
       title: 'Monthly Appointments',
-      subtitle: 'Click a date to view details',
+      subtitle: 'Tap a date to view details',
       trailing: Row(
         children: [
-          IconButton(
-              onPressed: () => prov.fetchCalendarData(DateTime(
-                  prov.selectedDate.year, prov.selectedDate.month - 1)),
-              icon: const Icon(Icons.chevron_left_rounded, size: 20)),
-          Text(DateFormat('MMM yyyy').format(prov.selectedDate),
-              style: const TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.bold)),
-          IconButton(
-              onPressed: () => prov.fetchCalendarData(DateTime(
-                  prov.selectedDate.year, prov.selectedDate.month + 1)),
-              icon: const Icon(Icons.chevron_right_rounded, size: 20)),
+          _calNavBtn(Icons.chevron_left_rounded, () => prov.fetchCalendarData(DateTime(
+              prov.dateFrom.year, prov.dateFrom.month - 1))),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(DateFormat('MMM yyyy').format(prov.dateFrom),
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+          _calNavBtn(Icons.chevron_right_rounded, () => prov.fetchCalendarData(DateTime(
+              prov.dateFrom.year, prov.dateFrom.month + 1))),
         ],
       ),
       child: prov.isCalendarLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: CircularProgressIndicator(strokeWidth: 1.5)))
           : _buildCalendarGrid(prov),
+    );
+  }
+
+  Widget _calNavBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, size: 16, color: Colors.grey.shade600),
+      ),
     );
   }
 
   Widget _buildCalendarGrid(DashboardProvider prov) {
     final now = DateTime.now();
-    final firstDay =
-    DateTime(prov.selectedDate.year, prov.selectedDate.month, 1);
-    final daysInMonth =
-        DateTime(prov.selectedDate.year, prov.selectedDate.month + 1, 0).day;
+    final firstDay = DateTime(prov.dateFrom.year, prov.dateFrom.month, 1);
+    final daysInMonth = DateTime(prov.dateFrom.year, prov.dateFrom.month + 1, 0).day;
     final startOffset = firstDay.weekday % 7;
 
     return Column(
@@ -1154,61 +2450,88 @@ class _DashboardBodyState extends State<_DashboardBody> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-              .map((d) => Text(d,
-              style:
-              TextStyle(fontSize: 10, color: Colors.grey.shade400)))
+              .map((d) => SizedBox(
+                    width: 36,
+                    child: Center(
+                      child: Text(d,
+                          style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade400,
+                              letterSpacing: 0.5)),
+                    ),
+                  ))
               .toList(),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7, crossAxisSpacing: 4, mainAxisSpacing: 4),
+            crossAxisCount: 7,
+            crossAxisSpacing: 3,
+            mainAxisSpacing: 3,
+            childAspectRatio: 0.85,
+          ),
           itemCount: daysInMonth + startOffset,
           itemBuilder: (context, index) {
             if (index < startOffset) return const SizedBox();
             final day = index - startOffset + 1;
             final dateStr = DateFormat('yyyy-MM-dd').format(DateTime(
-                prov.selectedDate.year, prov.selectedDate.month, day));
+                prov.dateFrom.year, prov.dateFrom.month, day));
             final data = prov.calendarData[dateStr] ?? {};
             final hasAppts = data.isNotEmpty;
             final isToday = day == now.day &&
-                prov.selectedDate.month == now.month &&
-                prov.selectedDate.year == now.year;
+                prov.dateFrom.month == now.month &&
+                prov.dateFrom.year == now.year;
 
             return GestureDetector(
-              onTap:
-              hasAppts ? () => _showAppointmentDetails(dateStr, data) : null,
+              onTap: hasAppts ? () => _showAppointmentDetails(dateStr, data) : null,
               child: Container(
                 decoration: BoxDecoration(
-                    color: hasAppts
-                        ? const Color(0xFF10B981).withOpacity(0.08)
-                        : Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: isToday
-                            ? const Color(0xFF10B981)
-                            : Colors.transparent)),
+                  color: hasAppts
+                      ? const Color(0xFF0D9488).withValues(alpha: 0.07)
+                      : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isToday
+                        ? const Color(0xFF0D9488)
+                        : hasAppts
+                            ? Colors.grey.shade200
+                            : Colors.transparent,
+                    width: isToday ? 1.5 : 1,
+                  ),
+                ),
                 child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(day.toString(),
-                          style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: isToday
-                                  ? const Color(0xFF10B981)
-                                  : const Color(0xFF475569))),
-                      if (hasAppts)
-                        Container(
-                            margin: const EdgeInsets.only(top: 2),
-                            width: 4,
-                            height: 4,
-                            decoration: const BoxDecoration(
-                                color: Color(0xFF10B981),
-                                shape: BoxShape.circle)),
-                    ]),
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      day.toString(),
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isToday
+                              ? const Color(0xFF0D9488)
+                              : const Color(0xFF475569)),
+                    ),
+                    if (hasAppts) ...[
+                      const SizedBox(height: 3),
+                      ...data.entries.take(2).map((e) => Container(
+                            margin: const EdgeInsets.only(bottom: 1, left: 2, right: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: Text(
+                              '${e.key.replaceFirst('Dr. ', '').split(' ').first} (${e.value.length})',
+                              style: TextStyle(fontSize: 6, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          )),
+                    ],
+                  ],
+                ),
               ),
             );
           },
@@ -1217,212 +2540,235 @@ class _DashboardBodyState extends State<_DashboardBody> {
     );
   }
 
+  // ── Appointment detail modal (matches React Dialog) ───────────────────────
   void _showAppointmentDetails(
       String date, Map<String, List<dynamic>> data) {
-    final size = MediaQuery.of(context).size;
     showDialog(
       context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.3),
       builder: (context) => Dialog(
-        shape:
-        RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 40),
         child: Container(
-          width: size.width * 0.9,
-          padding: EdgeInsets.all(size.width * 0.06),
+          constraints: const BoxConstraints(maxWidth: 580),
+          decoration: BoxDecoration(
+            color: const Color(0xFAFAFCFF),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 40, offset: const Offset(0, 8)),
+            ],
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                  DateFormat('EEEE, MMM d').format(DateTime.parse(date)),
-                  style: TextStyle(
-                      fontSize: size.width * 0.045,
-                      fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: data.entries
-                      .map((entry) => Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding:
-                        const EdgeInsets.symmetric(vertical: 8.0),
-                        child: Row(children: [
-                          const Icon(Icons.person_rounded,
-                              size: 16, color: Color(0xFF10B981)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                              child: Text(entry.key,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold),
-                                  overflow: TextOverflow.ellipsis)),
-                          Text('${entry.value.length} Appts',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade500))
-                        ]),
-                      ),
-                      ...entry.value
-                          .map((appt) => Container(
-                        margin: const EdgeInsets.only(
-                            left: 24, bottom: 4),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius:
-                            BorderRadius.circular(12)),
-                        child: Row(children: [
-                          Expanded(
-                              child: Row(children: [
-                                Expanded(
-                                  child: Text(
-                                      appt['patient_name'] ??
-                                          'Unknown',
-                                      style: const TextStyle(
-                                          fontSize: 13),
-                                      overflow:
-                                      TextOverflow.ellipsis),
-                                ),
-                                if (appt['token_number'] !=
-                                    null) ...[
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding:
-                                    const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color:
-                                      _teal.withOpacity(0.08),
-                                      borderRadius:
-                                      BorderRadius.circular(4),
-                                      border: Border.all(
-                                          color: _teal
-                                              .withOpacity(0.3)),
-                                    ),
-                                    child: Text(
-                                      'T-${appt['token_number']}',
-                                      style: const TextStyle(
-                                          fontSize: 9,
-                                          fontWeight:
-                                          FontWeight.bold,
-                                          color: _teal),
-                                    ),
-                                  ),
-                                ],
-                              ])),
-                          const SizedBox(width: 12),
-                          Text(
-                              (appt['slot_time'] ?? '')
-                                  .toString()
-                                  .substring(0, 5),
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color:
-                                  Colors.grey.shade400))
-                        ]),
-                      ))
-                          .toList(),
-                    ],
-                  ))
-                      .toList(),
+              // Header
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_today_rounded, size: 15, color: Colors.grey.shade400),
+                    const SizedBox(width: 8),
+                    Text(
+                      DateFormat('EEEE, d MMMM yyyy').format(DateTime.parse(date)),
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1E293B)),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close')),
+              // Content
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.6,
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: data.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Center(
+                            child: Text('No appointments found.',
+                                style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8))),
+                          ),
+                        )
+                      : Column(
+                          children: data.entries.map((entry) {
+                            final doctorName = entry.key;
+                            final appointments = entry.value;
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                boxShadow: [
+                                  BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFF8FAFC),
+                                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                                      border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9))),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.local_hospital_rounded, size: 14, color: Colors.grey.shade400),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            doctorName,
+                                            style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w700,
+                                                color: Color(0xFF1E293B)),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade100,
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                          child: Text(
+                                            '${appointments.length} appt${appointments.length != 1 ? 's' : ''}',
+                                            style: TextStyle(fontSize: 10, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  ...appointments.asMap().entries.map((e) {
+                                    final appt = e.value;
+                                    final isLast = e.key == appointments.length - 1;
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        border: !isLast ? const Border(bottom: BorderSide(color: Color(0xFFF8FAFC))) : null,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 32,
+                                            height: 32,
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey.shade100,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: Icon(Icons.person_outline_rounded, size: 14, color: Colors.grey.shade400),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  appt['patient_name'] ?? 'Unknown Patient',
+                                                  style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight: FontWeight.w700,
+                                                      color: Color(0xFF1E293B)),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Row(
+                                                  children: [
+                                                    if (appt['mr_number'] != null) ...[
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.grey.shade50,
+                                                          borderRadius: BorderRadius.circular(4),
+                                                          border: Border.all(color: Colors.grey.shade200),
+                                                        ),
+                                                        child: Row(
+                                                          children: [
+                                                            Icon(Icons.tag_rounded, size: 9, color: Colors.grey.shade500),
+                                                            const SizedBox(width: 2),
+                                                            Text(
+                                                              appt['mr_number'].toString(),
+                                                              style: TextStyle(fontSize: 9, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                    ],
+                                                    if (appt['slot_time'] != null)
+                                                      Row(
+                                                        children: [
+                                                          Icon(Icons.access_time_rounded, size: 9, color: Colors.grey.shade400),
+                                                          const SizedBox(width: 2),
+                                                          Text(
+                                                            _format12h(appt['slot_time'].toString()),
+                                                            style: TextStyle(fontSize: 9, color: Colors.grey.shade500, fontWeight: FontWeight.w500),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (appt['token_number'] != null)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.grey.shade50,
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: Colors.grey.shade200),
+                                              ),
+                                              child: Text(
+                                                '#${appt['token_number']}',
+                                                style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: Color(0xFF334155),
+                                                    fontFamily: 'monospace'),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                ),
+              ),
+              // Close button
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: const BoxDecoration(
+                  border: Border(top: BorderSide(color: Color(0xFFF1F5F9))),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close', style: TextStyle(color: Color(0xFF475569))),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
-  }
-
-  Widget _chartLegend(String label, Color color) {
-    return Row(children: [
-      Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-      const SizedBox(width: 4),
-      Text(label,
-          style: TextStyle(fontSize: 10, color: Colors.grey.shade500))
-    ]);
-  }
-
-  Widget _shiftRowHeader() {
-    return Padding(
-        padding: const EdgeInsets.only(bottom: 8.0),
-        child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: ['Shift', 'Pts', 'Consults', 'Rev']
-                .map((h) => Text(h.toUpperCase(),
-                style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey.shade400)))
-                .toList()));
-  }
-
-  Widget _shiftRow(String shift, Color color, DashboardProvider prov) {
-    final pts = prov.shiftPatientCount[shift] ?? 0;
-    final rev = prov.shiftOpdRevenue[shift] ?? 0;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(children: [
-            Container(
-                width: 6,
-                height: 6,
-                decoration:
-                BoxDecoration(color: color, shape: BoxShape.circle)),
-            const SizedBox(width: 8),
-            Text(shift,
-                style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600)),
-          ]),
-          Text(pts.toString(),
-              style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
-          Text((prov.shiftConsultCount[shift] ?? 0).toString(),
-              style: const TextStyle(fontSize: 12, fontFamily: 'monospace')),
-          Text(NumberFormat.compact().format(rev),
-              style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace')),
-        ],
-      ),
-    );
-  }
-
-  Widget _metricRow(String icon, String label, String value,
-      {bool isNet = false, bool positive = true}) {
-    return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0),
-        child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(children: [
-                Text(icon, style: const TextStyle(fontSize: 16)),
-                const SizedBox(width: 8),
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 11, color: Colors.grey.shade600))
-              ]),
-              Text(value,
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: isNet
-                          ? (positive
-                          ? const Color(0xFF10B981)
-                          : const Color(0xFFF43F5E))
-                          : const Color(0xFF334155),
-                      fontFamily: 'monospace'))
-            ]));
   }
 
   void _showDialog(

@@ -8,21 +8,75 @@ import '../../global/global_api.dart';
 import '../../models/dashboard_model.dart';
 import '../../core/utils/database_helper.dart';
 
+// Preset descriptor
+class RangePreset {
+  final String id;
+  final String label;
+
+  const RangePreset({required this.id, required this.label});
+}
+
+const List<RangePreset> kRangePresets = [
+  RangePreset(id: 'today', label: 'Today'),
+  RangePreset(id: 'week', label: 'This Week'),
+  RangePreset(id: 'month', label: 'This Month'),
+  RangePreset(id: 'year', label: 'This Year'),
+  RangePreset(id: 'fiscal', label: 'Fiscal Year'),
+  RangePreset(id: 'custom', label: 'Custom Range'),
+];
+
 class DashboardProvider extends ChangeNotifier {
   final AuthStorageService _storage = AuthStorageService();
 
+  // ─── Loading states ──────────────────────────────────────────────────────
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
   bool _isCalendarLoading = false;
   bool get isCalendarLoading => _isCalendarLoading;
 
-  DateTime _selectedDate = DateTime.now();
-  DateTime get selectedDate => _selectedDate;
+  bool _isAttendanceLoading = false;
+  bool get isAttendanceLoading => _isAttendanceLoading;
+
+  // ─── Date range / preset / shift filters ─────────────────────────────────
+  String _selectedPreset = 'today';
+  String get selectedPreset => _selectedPreset;
+
+  DateTime _dateFrom = DateTime.now();
+  DateTime get dateFrom => _dateFrom;
+
+  DateTime _dateTo = DateTime.now();
+  DateTime get dateTo => _dateTo;
+
+  // Legacy getter for widgets expecting single date
+  DateTime get selectedDate => _dateFrom;
 
   String _selectedShiftType = 'All';
   String get selectedShiftType => _selectedShiftType;
 
+  String? _runningShift;
+  String? get runningShift => _runningShift;
+
+  // ─── Selected category (for card/bar interaction) ─────────────────────────
+  String? _selectedCategory;
+  String? get selectedCategory => _selectedCategory;
+
+  void setSelectedCategory(String? key) {
+    _selectedCategory = (_selectedCategory == key) ? null : key;
+    notifyListeners();
+  }
+
+  // ─── Management-dashboard summary ────────────────────────────────────────
+  ManagementSummary? _summary;
+  ManagementSummary? get summary => _summary;
+
+  // ─── Attendance ──────────────────────────────────────────────────────────
+  List<AttendanceRecord> _attendanceRecords = [];
+  List<AttendanceRecord> get attendanceRecords => _attendanceRecords;
+  String? _attendanceError;
+  String? get attendanceError => _attendanceError;
+
+  // ─── Legacy shift data (kept for existing widgets) ───────────────────────
   List<ShiftDashboardInfo> _availableShifts = [];
   List<ShiftDashboardInfo> get availableShifts => _availableShifts;
 
@@ -32,7 +86,7 @@ class DashboardProvider extends ChangeNotifier {
   List<dynamic> get expenses => _expenses;
   Map<String, Map<String, List<dynamic>>> _calendarData = {};
 
-  // Getters for processed data
+  // Legacy computed getters
   double totalOpdRevenue = 0;
   double totalConsultRevenue = 0;
   int totalConsultCount = 0;
@@ -43,17 +97,13 @@ class DashboardProvider extends ChangeNotifier {
   double netRevenue = 0;
   String topExpenseCategory = '—';
 
-  // Shift-wise breakdowns for charts
   Map<String, double> shiftOpdRevenue = {'Morning': 0, 'Evening': 0, 'Night': 0};
   Map<String, double> shiftConsultRevenue = {'Morning': 0, 'Evening': 0, 'Night': 0};
   Map<String, int> shiftPatientCount = {'Morning': 0, 'Evening': 0, 'Night': 0};
   Map<String, int> shiftConsultCount = {'Morning': 0, 'Evening': 0, 'Night': 0};
   List<ChartDataPoint> trendData = [];
 
-  DashboardProvider() {
-    // Initial fetch happens when screen mounts or date selected
-  }
-
+  // ─── Auth helpers ────────────────────────────────────────────────────────
   Future<Map<String, String>> _authHeaders() async {
     final token = await _storage.getToken();
     return {
@@ -63,38 +113,232 @@ class DashboardProvider extends ChangeNotifier {
     };
   }
 
-  Future<void> setSelectedDate(DateTime date) async {
-    _selectedDate = date;
+  // ─── Preset & date range helpers ─────────────────────────────────────────
+  ({DateTime from, DateTime to}) _resolvePreset(String id, DateTime now) {
+    switch (id) {
+      case 'today':
+        return (from: now, to: now);
+      case 'week':
+        final back = now.weekday == 7 ? 6 : now.weekday - 1; // Monday start
+        final from = DateTime(now.year, now.month, now.day - back);
+        final to = from.add(const Duration(days: 6));
+        return (from: from, to: to);
+      case 'month':
+        final from = DateTime(now.year, now.month, 1);
+        final to = DateTime(now.year, now.month + 1, 0);
+        return (from: from, to: to);
+      case 'year':
+        final from = DateTime(now.year, 1, 1);
+        final to = DateTime(now.year, 12, 31);
+        return (from: from, to: to);
+      case 'fiscal':
+        final startYear = now.month >= 7 ? now.year : now.year - 1;
+        final from = DateTime(startYear, 7, 1);
+        final to = DateTime(startYear + 1, 6, 30);
+        return (from: from, to: to);
+      default:
+        return (from: now, to: now);
+    }
+  }
+
+  String _matchPreset(DateTime from, DateTime to, DateTime now) {
+    final fmt = DateFormat('yyyy-MM-dd');
+    for (final p in ['today', 'week', 'month', 'year', 'fiscal']) {
+      final r = _resolvePreset(p, now);
+      if (fmt.format(r.from) == fmt.format(from) && fmt.format(r.to) == fmt.format(to)) {
+        return p;
+      }
+    }
+    return 'custom';
+  }
+
+  Future<void> applyPreset(String presetId) async {
+    if (presetId == 'custom') {
+      _selectedPreset = 'custom';
+      notifyListeners();
+      return;
+    }
+    final now = DateTime.now();
+    final r = _resolvePreset(presetId, now);
+    _selectedPreset = presetId;
+    _dateFrom = r.from;
+    _dateTo = r.to;
+    _selectedCategory = null;
     notifyListeners();
-    await Future.wait([
-      fetchAvailableShifts(date),
-      fetchCalendarData(date),
-    ]);
+    await refresh();
+  }
+
+  Future<void> setDateFrom(DateTime from) async {
+    _dateFrom = from;
+    if (_dateTo.isBefore(from)) {
+      _dateTo = from;
+    }
+    _selectedPreset = _matchPreset(_dateFrom, _dateTo, DateTime.now());
+    _selectedCategory = null;
+    notifyListeners();
+    await refresh();
+  }
+
+  Future<void> setDateTo(DateTime to) async {
+    _dateTo = to;
+    if (_dateFrom.isAfter(to)) {
+      _dateFrom = to;
+    }
+    _selectedPreset = _matchPreset(_dateFrom, _dateTo, DateTime.now());
+    _selectedCategory = null;
+    notifyListeners();
+    await refresh();
+  }
+
+  // Legacy single date setter
+  Future<void> setSelectedDate(DateTime date) async {
+    _dateFrom = date;
+    _dateTo = date;
+    _selectedPreset = 'today';
+    _selectedCategory = null;
+    notifyListeners();
+    await refresh();
   }
 
   void setSelectedShiftType(String type) {
     _selectedShiftType = type;
+    _selectedCategory = null;
+    _fetchManagementSummary();
     fetchData();
     notifyListeners();
   }
 
   void resetToToday() {
-    _selectedDate = DateTime.now();
+    final now = DateTime.now();
+    _dateFrom = now;
+    _dateTo = now;
+    _selectedPreset = 'today';
     _selectedShiftType = 'All';
+    _selectedCategory = null;
     notifyListeners();
   }
 
+  void resetLoading() {
+    _isLoading = true;
+    notifyListeners();
+  }
+
+  // ─── Running shift API ───────────────────────────────────────────────────
+  Future<void> fetchCurrentShift() async {
+    try {
+      final headers = await _authHeaders();
+      final url = '${GlobalApi.baseUrl}/shifts/current';
+      final response = await http.get(Uri.parse(url), headers: headers);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final type = json['data']?['shift_type']?.toString();
+        if (type != null && type.isNotEmpty && type != 'All') {
+          _runningShift = type;
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      developer.log('Error fetching current shift: $e', name: 'DashboardProvider');
+    }
+  }
+
+  // ─── Management-dashboard API ─────────────────────────────────────────────
+  Future<void> _fetchManagementSummary() async {
+    try {
+      final headers = await _authHeaders();
+      final fromStr = DateFormat('yyyy-MM-dd').format(_dateFrom);
+      final toStr = DateFormat('yyyy-MM-dd').format(_dateTo);
+      final shift = _selectedShiftType == 'All' ? '' : _selectedShiftType;
+      final params = 'startDate=$fromStr&endDate=$toStr${shift.isNotEmpty ? '&shift=$shift' : ''}';
+      final url = '${GlobalApi.baseUrl}/reports/management-dashboard?$params';
+      developer.log('📡 GET $url', name: 'DashboardProvider');
+
+      final response = await http.get(Uri.parse(url), headers: headers);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['success'] == true && json['data'] != null) {
+          _summary = ManagementSummary.fromJson(json['data'] as Map<String, dynamic>);
+          developer.log('✅ ManagementSummary loaded', name: 'DashboardProvider');
+          _syncLegacyFromSummary();
+        }
+      } else if (response.statusCode == 403) {
+        developer.log('⛔ No permission for management-dashboard', name: 'DashboardProvider');
+      } else {
+        developer.log('⚠️ management-dashboard HTTP ${response.statusCode}', name: 'DashboardProvider');
+      }
+    } catch (e) {
+      developer.log('Error fetching management summary: $e', name: 'DashboardProvider');
+    }
+  }
+
+  void _syncLegacyFromSummary() {
+    if (_summary == null) return;
+    totalOpdRevenue = _summary!.opd.amount;
+    totalConsultRevenue = _summary!.consultation.amount;
+    totalConsultCount = _summary!.consultation.qty;
+    totalPatients = _summary!.opd.qty;
+    totalExpenses = _summary!.expenses.amount;
+    netRevenue = _summary!.revenue.net;
+  }
+
+  // ─── Attendance API ───────────────────────────────────────────────────────
+  Future<void> fetchAttendance([DateTime? date]) async {
+    _isAttendanceLoading = true;
+    _attendanceError = null;
+    notifyListeners();
+
+    try {
+      final headers = await _authHeaders();
+      final targetDate = date ?? (_dateFrom == _dateTo ? _dateFrom : DateTime.now());
+      final dateStr = DateFormat('yyyy-MM-dd').format(targetDate);
+      final url = '${GlobalApi.baseUrl}/attendance/report?date_from=$dateStr&date_to=$dateStr&limit=2000';
+      developer.log('📡 GET $url (attendance)', name: 'DashboardProvider');
+
+      final response = await http.get(Uri.parse(url), headers: headers);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final data = json['data'];
+        if (data is List) {
+          _attendanceRecords = data
+              .map((e) => AttendanceRecord.fromJson(e as Map<String, dynamic>))
+              .toList();
+          _attendanceRecords.sort((a, b) {
+            if (a.sortRank != b.sortRank) return a.sortRank.compareTo(b.sortRank);
+            return b.lateMinutes.compareTo(a.lateMinutes);
+          });
+          developer.log('✅ ${_attendanceRecords.length} attendance records', name: 'DashboardProvider');
+        }
+      }
+    } catch (e) {
+      _attendanceError = 'Attendance unavailable';
+      developer.log('Error fetching attendance: $e', name: 'DashboardProvider');
+    }
+
+    _isAttendanceLoading = false;
+    notifyListeners();
+  }
+
+  // ─── Main refresh ─────────────────────────────────────────────────────────
+  Future<void> refresh() async {
+    await Future.wait([
+      fetchCurrentShift(),
+      fetchAvailableShifts(_dateFrom),
+      fetchCalendarData(_dateFrom),
+      fetchAttendance(_dateFrom == _dateTo ? _dateFrom : DateTime.now()),
+    ]);
+  }
+
+  // ─── Legacy: fetch available shifts + opd data ────────────────────────────
   Future<void> fetchAvailableShifts(DateTime date) async {
     _isLoading = true;
     _availableShifts = [];
     notifyListeners();
-    
-    final dateStr = DateFormat('yyyy-MM-dd').format(date);
-     
+
+    final fromStr = DateFormat('yyyy-MM-dd').format(_dateFrom);
+
     try {
       final headers = await _authHeaders();
-      // React logic: Derive shifts from patient data to be consistent with records
-      final url = '${GlobalApi.baseUrl}/opd-patient-data?shift_date=$dateStr&limit=500';
+      final url = '${GlobalApi.baseUrl}/opd-patient-data?shift_date=$fromStr&limit=500';
       developer.log('📡 GET $url (for shifts)', name: 'DashboardProvider');
       final response = await http.get(Uri.parse(url), headers: headers);
 
@@ -103,53 +347,46 @@ class DashboardProvider extends ChangeNotifier {
         if (json['success'] == true && json['data'] is List) {
           final List<dynamic> data = json['data'];
           final Map<int, ShiftDashboardInfo> shiftsMap = {};
-          
+
           for (var r in data) {
             final shiftId = r['shift_id'];
             if (shiftId != null && !shiftsMap.containsKey(shiftId)) {
               shiftsMap[shiftId] = ShiftDashboardInfo(
                 shiftId: shiftId,
                 shiftType: r['shift_type'] ?? 'Unknown',
-                shiftDate: r['shift_date'] ?? dateStr,
+                shiftDate: r['shift_date'] ?? fromStr,
               );
             }
           }
-          
+
           final List<ShiftDashboardInfo> allShifts = shiftsMap.values.toList()
             ..sort((a, b) => a.shiftId.compareTo(b.shiftId));
-            
-          // Night shift exclusion logic from React
+
           final nightShifts = allShifts.where((s) => _normalizeShiftType(s.shiftType) == 'Night').toList();
           int? shiftIdToExclude;
           if (nightShifts.length > 1) {
             shiftIdToExclude = nightShifts[0].shiftId;
           }
-          
+
           _availableShifts = allShifts.where((s) => s.shiftId != shiftIdToExclude).toList();
-          
-          developer.log('✅ Derived ${_availableShifts.length} shifts for $dateStr', name: 'DashboardProvider');
         }
       }
     } catch (e) {
       developer.log('Error fetching available shifts: $e', name: 'DashboardProvider');
     }
-    await fetchData();
-    notifyListeners();
-  }
 
-  Future<void> refresh() async {
     await Future.wait([
-      fetchAvailableShifts(_selectedDate),
-      fetchCalendarData(_selectedDate),
+      _fetchManagementSummary(),
+      fetchData(),
     ]);
+    notifyListeners();
   }
 
   Future<void> fetchData() async {
     _isLoading = true;
-    // Clear old data immediately to avoid "same data" flash
     _opdData = [];
     _expenses = [];
-    _processData(); 
+    _processData();
     notifyListeners();
 
     List<int> shiftIdsToFetch = [];
@@ -169,11 +406,11 @@ class DashboardProvider extends ChangeNotifier {
       final Set<dynamic> seenRecords = {};
       final Set<dynamic> seenExpenses = {};
 
+      final fromStr = DateFormat('yyyy-MM-dd').format(_dateFrom);
+
       if (shiftIdsToFetch.isEmpty && _selectedShiftType == 'All') {
-        final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-        // Fallback: Use multiple date parameters to be robust across different API versions
-        final opdUrl = '${GlobalApi.baseUrl}/opd-patient-data?shift_date=$dateStr&reg_date=$dateStr&registration_date=$dateStr&date=$dateStr&limit=500';
-        final expUrl = '${GlobalApi.baseUrl}/expenses?shift_date=$dateStr&reg_date=$dateStr&date=$dateStr&limit=500';
+        final opdUrl = '${GlobalApi.baseUrl}/opd-patient-data?shift_date=$fromStr&reg_date=$fromStr&registration_date=$fromStr&date=$fromStr&limit=500';
+        final expUrl = '${GlobalApi.baseUrl}/expenses?shift_date=$fromStr&reg_date=$fromStr&date=$fromStr&limit=500';
 
         final responses = await Future.wait([
           http.get(Uri.parse(opdUrl), headers: headers),
@@ -196,10 +433,8 @@ class DashboardProvider extends ChangeNotifier {
           }
         }
       } else {
-        final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
         final futures = shiftIdsToFetch.map((shiftId) async {
-          // Fetch OPD data for shift, ensuring date is also passed if shift IDs are static
-          final opdUrl = '${GlobalApi.baseUrl}/opd-patient-data/shift/$shiftId?shift_date=$dateStr&reg_date=$dateStr&date=$dateStr';
+          final opdUrl = '${GlobalApi.baseUrl}/opd-patient-data/shift/$shiftId?shift_date=$fromStr&reg_date=$fromStr&date=$fromStr';
           final opdRes = await http.get(Uri.parse(opdUrl), headers: headers);
           if (opdRes.statusCode == 200) {
             final json = jsonDecode(opdRes.body);
@@ -211,8 +446,7 @@ class DashboardProvider extends ChangeNotifier {
         }).toList();
 
         final expFutures = shiftIdsToFetch.map((shiftId) async {
-          // Fetch Expenses for shift, ensuring date is also passed
-          final expUrl = '${GlobalApi.baseUrl}/expenses/shift/$shiftId?shift_date=$dateStr&date=$dateStr';
+          final expUrl = '${GlobalApi.baseUrl}/expenses/shift/$shiftId?shift_date=$fromStr&date=$fromStr';
           final expRes = await http.get(Uri.parse(expUrl), headers: headers);
           if (expRes.statusCode == 200) {
             final json = jsonDecode(expRes.body);
@@ -224,7 +458,7 @@ class DashboardProvider extends ChangeNotifier {
         }).toList();
 
         final results = await Future.wait([...futures, ...expFutures]);
-        
+
         for (var result in results) {
           if (result == null) continue;
           final List<dynamic> data = result['data'];
@@ -248,10 +482,6 @@ class DashboardProvider extends ChangeNotifier {
       _opdData = allOpdData;
       _expenses = allExpenses;
       _processData();
-      
-      developer.log('📈 Processed ${_opdData.length} records and ${_expenses.length} expenses', name: 'DashboardProvider');
-      developer.log('💰 Total Revenue: $totalOpdRevenue, Total Expenses: $totalExpenses', name: 'DashboardProvider');
-
     } catch (e) {
       developer.log('Error fetching dashboard data: $e', name: 'DashboardProvider');
     }
@@ -260,13 +490,7 @@ class DashboardProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void resetLoading() {
-    _isLoading = true;
-    notifyListeners();
-  }
-
   Future<void> _processData() async {
-    // Reset values
     totalOpdRevenue = 0;
     totalConsultRevenue = 0;
     totalConsultCount = 0;
@@ -278,21 +502,18 @@ class DashboardProvider extends ChangeNotifier {
     shiftConsultCount = {'Morning': 0, 'Evening': 0, 'Night': 0};
     Map<String, double> hourMap = {};
 
-    // Process OPD
     for (var r in _opdData) {
       final shift = _normalizeShiftType(r['shift_type']);
       if (!shiftOpdRevenue.containsKey(shift)) continue;
 
-      // React uses service_amount || total_amount
       final amount = _parseDouble(r['service_amount'] ?? r['total_amount']);
-      
+
       totalOpdRevenue += amount;
       totalPatients += 1;
-      
+
       shiftOpdRevenue[shift] = (shiftOpdRevenue[shift] ?? 0) + amount;
       shiftPatientCount[shift] = (shiftPatientCount[shift] ?? 0) + 1;
 
-      // Identify consultation strictly like React: String(r.opd_service || "").trim() === "Consultation"
       final opdService = (r['opd_service'] ?? '').toString().trim();
       if (opdService == 'Consultation') {
         totalConsultRevenue += amount;
@@ -301,24 +522,21 @@ class DashboardProvider extends ChangeNotifier {
         shiftConsultCount[shift] = (shiftConsultCount[shift] ?? 0) + 1;
       }
 
-      // Trend data: group by hour
       try {
         final dateStr = r['created_at'] ?? r['reg_date'] ?? r['date_time'] ?? '';
         if (dateStr.isNotEmpty) {
-           DateTime dt;
-           if (dateStr.contains('T')) {
-             dt = DateTime.parse(dateStr);
-           } else {
-             // Try common formats if ISO fails
-             dt = DateFormat('yyyy-MM-dd HH:mm:ss').parse(dateStr);
-           }
-           final hourKey = DateFormat('h a').format(dt);
-           hourMap[hourKey] = (hourMap[hourKey] ?? 0) + amount;
+          DateTime dt;
+          if (dateStr.contains('T')) {
+            dt = DateTime.parse(dateStr);
+          } else {
+            dt = DateFormat('yyyy-MM-dd HH:mm:ss').parse(dateStr);
+          }
+          final hourKey = DateFormat('h a').format(dt);
+          hourMap[hourKey] = (hourMap[hourKey] ?? 0) + amount;
         }
       } catch (_) {}
     }
 
-    // Process Expenses
     Map<String, double> expMap = {};
     for (var e in _expenses) {
       final amt = _parseDouble(e['expense_amount']);
@@ -338,26 +556,23 @@ class DashboardProvider extends ChangeNotifier {
     netRevenue = totalOpdRevenue - totalExpenses;
     topExpenseCategory = sortedExp.isNotEmpty ? sortedExp[0].key : '—';
 
-    // Finalize trend data: sort chronologically if possible
-    // We'll just sort by the hour for now
     final sortedHours = hourMap.entries.toList()..sort((a, b) {
-       // Simple map for sorting h a format
-       final order = {
-         '12 AM': 0, '1 AM': 1, '2 AM': 2, '3 AM': 3, '4 AM': 4, '5 AM': 5, '6 AM': 6, '7 AM': 7, 
-         '8 AM': 8, '9 AM': 9, '10 AM': 10, '11 AM': 11, '12 PM': 12, '1 PM': 13, '2 PM': 14, 
-         '3 PM': 15, '4 PM': 16, '5 PM': 17, '6 PM': 18, '7 PM': 19, '8 PM': 20, '9 PM': 21, 
-         '10 PM': 22, '11 PM': 23
-       };
-       return (order[a.key] ?? 0).compareTo(order[b.key] ?? 0);
+      final order = {
+        '12 AM': 0, '1 AM': 1, '2 AM': 2, '3 AM': 3, '4 AM': 4, '5 AM': 5, '6 AM': 6, '7 AM': 7,
+        '8 AM': 8, '9 AM': 9, '10 AM': 10, '11 AM': 11, '12 PM': 12, '1 PM': 13, '2 PM': 14,
+        '3 PM': 15, '4 PM': 16, '5 PM': 17, '6 PM': 18, '7 PM': 19, '8 PM': 20, '9 PM': 21,
+        '10 PM': 22, '11 PM': 23
+      };
+      return (order[a.key] ?? 0).compareTo(order[b.key] ?? 0);
     });
-    
+
     trendData = sortedHours.map((e) => ChartDataPoint(e.key, e.value)).toList();
     if (trendData.isEmpty) {
-       trendData = [ChartDataPoint('8 AM', 0), ChartDataPoint('12 PM', 0), ChartDataPoint('6 PM', 0)];
+      trendData = [ChartDataPoint('8 AM', 0), ChartDataPoint('12 PM', 0), ChartDataPoint('6 PM', 0)];
     }
   }
 
-  String _normalizeShiftType(String type) {
+  String _normalizeShiftType(dynamic type) {
     if (type == null) return 'Unknown';
     final t = type.toString().trim().toLowerCase();
     if (t == 'morning') return 'Morning';
@@ -368,14 +583,14 @@ class DashboardProvider extends ChangeNotifier {
 
   Color _getContrastColor(int index) {
     final colors = [
-      const Color(0xFF10B981), // emerald
-      const Color(0xFF6366F1), // indigo
-      const Color(0xFFF59E0B), // amber
-      const Color(0xFFEF4444), // rose
-      const Color(0xFF8B5CF6), // violet
-      const Color(0xFF06B6D4), // cyan
-      const Color(0xFFF97316), // orange
-      const Color(0xFF64748B), // slate
+      const Color(0xFF10B981),
+      const Color(0xFF6366F1),
+      const Color(0xFFF59E0B),
+      const Color(0xFFEF4444),
+      const Color(0xFF8B5CF6),
+      const Color(0xFF06B6D4),
+      const Color(0xFFF97316),
+      const Color(0xFF64748B),
     ];
     return colors[index % colors.length];
   }
@@ -387,6 +602,7 @@ class DashboardProvider extends ChangeNotifier {
     return 0.0;
   }
 
+  // ─── Calendar data ────────────────────────────────────────────────────────
   Future<void> fetchCalendarData(DateTime date) async {
     _isCalendarLoading = true;
     notifyListeners();
@@ -403,11 +619,11 @@ class DashboardProvider extends ChangeNotifier {
         if (json['success'] == true && json['data'] is List) {
           final List<dynamic> appointments = json['data'];
           Map<String, Map<String, List<dynamic>>> grouped = {};
-          
+
           for (var apt in appointments) {
             final dateStr = DateTime.parse(apt['appointment_date']).toIso8601String().split('T')[0];
             final doctorName = apt['doctor_name'] ?? 'Unknown Doctor';
-            
+
             grouped.putIfAbsent(dateStr, () => {});
             grouped[dateStr]!.putIfAbsent(doctorName, () => []);
             grouped[dateStr]![doctorName]!.add(apt);
@@ -419,19 +635,18 @@ class DashboardProvider extends ChangeNotifier {
       developer.log('Error fetching calendar data from API: $e', name: 'DashboardProvider');
     }
 
-    // Load local appointments and merge into calendar
+    // Merge local appointments
     try {
       final db = await DatabaseHelper().database;
-      
-      // Load doctors mapping for name resolution
+
       final doctorRows = await db.query('master_doctors');
       final doctorMap = {
-        for (var d in doctorRows) 
+        for (var d in doctorRows)
           d['srl_no'].toString(): d['doctor_name']?.toString() ?? 'Dr. Unknown'
       };
 
       final localRows = await db.query('appointments_local');
-      
+
       for (var row in localRows) {
         final dateStr = DateTime.tryParse(row['appointment_date']?.toString() ?? '')
             ?.toIso8601String().split('T')[0];
@@ -442,11 +657,10 @@ class DashboardProvider extends ChangeNotifier {
 
         _calendarData.putIfAbsent(dateStr, () => {});
         _calendarData[dateStr]!.putIfAbsent(doctorName, () => []);
-        
-        // Prevent duplicates if already there (unlikely for offline but safe)
+
         final alreadyPresent = _calendarData[dateStr]![doctorName]!
             .any((a) => a['device_uuid'] == row['device_uuid']);
-            
+
         if (!alreadyPresent) {
           _calendarData[dateStr]![doctorName]!.add({
             'appointment_date': row['appointment_date'],
@@ -468,12 +682,5 @@ class DashboardProvider extends ChangeNotifier {
   }
 
   Map<String, Map<String, List<dynamic>>> get calendarData => _calendarData;
-
-  // Chart data getters
-  List<ChartDataPoint> get barChartData {
-    // We need to group by OPD/Consultation and then by Shift
-    // In React: [{ metric: "OPD", Morning: ..., Evening: ..., Night: ... }]
-    // Here we'll return List<ChartDataPoint> or similar structure that Syncfusion likes
-    return []; // Will handle in UI or specific getter
-  }
+  List<ChartDataPoint> get barChartData => [];
 }
