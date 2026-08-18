@@ -86,6 +86,10 @@ class DashboardProvider extends ChangeNotifier {
   List<dynamic> get expenses => _expenses;
   Map<String, Map<String, List<dynamic>>> _calendarData = {};
 
+  // ─── Calendar navigation month (independent of filter date range) ──────────
+  DateTime _calendarDate = DateTime.now();
+  DateTime get calendarDate => _calendarDate;
+
   // Legacy computed getters
   double totalOpdRevenue = 0;
   double totalConsultRevenue = 0;
@@ -604,6 +608,7 @@ class DashboardProvider extends ChangeNotifier {
 
   // ─── Calendar data ────────────────────────────────────────────────────────
   Future<void> fetchCalendarData(DateTime date) async {
+    _calendarDate = date;   // ← remember navigated month
     _isCalendarLoading = true;
     notifyListeners();
 

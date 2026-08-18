@@ -2401,26 +2401,48 @@ class _DashboardBodyState extends State<_DashboardBody> {
 
   // ── Calendar panel ────────────────────────────────────────────────────────
   Widget _buildCalendarPanel(DashboardProvider prov) {
+    final calDate = prov.calendarDate;
     return _buildGlassPanel(
       title: 'Monthly Appointments',
       subtitle: 'Tap a date to view details',
       trailing: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _calNavBtn(Icons.chevron_left_rounded, () => prov.fetchCalendarData(DateTime(
-              prov.dateFrom.year, prov.dateFrom.month - 1))),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Text(DateFormat('MMM yyyy').format(prov.dateFrom),
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          _calNavBtn(
+            Icons.chevron_left_rounded,
+            () => prov.fetchCalendarData(DateTime(calDate.year, calDate.month - 1)),
           ),
-          _calNavBtn(Icons.chevron_right_rounded, () => prov.fetchCalendarData(DateTime(
-              prov.dateFrom.year, prov.dateFrom.month + 1))),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                DateFormat('MMM yyyy').format(calDate),
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF334155),
+                ),
+              ),
+            ),
+          ),
+          _calNavBtn(
+            Icons.chevron_right_rounded,
+            () => prov.fetchCalendarData(DateTime(calDate.year, calDate.month + 1)),
+          ),
         ],
       ),
       child: prov.isCalendarLoading
-          ? const Center(child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: CircularProgressIndicator(strokeWidth: 1.5)))
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: CustomLoader(size: 40, color: _teal),
+              ),
+            )
           : _buildCalendarGrid(prov),
     );
   }
@@ -2441,61 +2463,69 @@ class _DashboardBodyState extends State<_DashboardBody> {
 
   Widget _buildCalendarGrid(DashboardProvider prov) {
     final now = DateTime.now();
-    final firstDay = DateTime(prov.dateFrom.year, prov.dateFrom.month, 1);
-    final daysInMonth = DateTime(prov.dateFrom.year, prov.dateFrom.month + 1, 0).day;
+    final calDate = prov.calendarDate;  // use calendarDate, not dateFrom
+    final firstDay = DateTime(calDate.year, calDate.month, 1);
+    final daysInMonth = DateTime(calDate.year, calDate.month + 1, 0).day;
     final startOffset = firstDay.weekday % 7;
 
     return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-              .map((d) => SizedBox(
-                    width: 36,
-                    child: Center(
-                      child: Text(d,
+        // Day-of-week header
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+                .map((d) => Expanded(
+                      child: Center(
+                        child: Text(
+                          d,
                           style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.grey.shade400,
-                              letterSpacing: 0.5)),
-                    ),
-                  ))
-              .toList(),
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade400,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ))
+                .toList(),
+          ),
         ),
-        const SizedBox(height: 8),
         GridView.builder(
           shrinkWrap: true,
+          padding: EdgeInsets.zero,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 7,
             crossAxisSpacing: 3,
             mainAxisSpacing: 3,
-            childAspectRatio: 0.85,
+            childAspectRatio: 0.82,
           ),
           itemCount: daysInMonth + startOffset,
           itemBuilder: (context, index) {
             if (index < startOffset) return const SizedBox();
             final day = index - startOffset + 1;
-            final dateStr = DateFormat('yyyy-MM-dd').format(DateTime(
-                prov.dateFrom.year, prov.dateFrom.month, day));
+            final dateStr = DateFormat('yyyy-MM-dd').format(
+              DateTime(calDate.year, calDate.month, day),
+            );
             final data = prov.calendarData[dateStr] ?? {};
             final hasAppts = data.isNotEmpty;
             final isToday = day == now.day &&
-                prov.dateFrom.month == now.month &&
-                prov.dateFrom.year == now.year;
+                calDate.month == now.month &&
+                calDate.year == now.year;
 
             return GestureDetector(
               onTap: hasAppts ? () => _showAppointmentDetails(dateStr, data) : null,
               child: Container(
                 decoration: BoxDecoration(
                   color: hasAppts
-                      ? const Color(0xFF0D9488).withValues(alpha: 0.07)
-                      : Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(10),
+                      ? const Color(0xFF0D9488).withValues(alpha: 0.06)
+                      : Colors.grey.shade50.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: isToday
-                        ? const Color(0xFF0D9488)
+                        ? const Color(0xFF0D9488).withValues(alpha: 0.6)
                         : hasAppts
                             ? Colors.grey.shade200
                             : Colors.transparent,
@@ -2503,30 +2533,40 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   ),
                 ),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      day.toString(),
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                    Padding(
+                      padding: const EdgeInsets.only(left: 3, top: 2),
+                      child: Text(
+                        day.toString(),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
                           color: isToday
                               ? const Color(0xFF0D9488)
-                              : const Color(0xFF475569)),
+                              : const Color(0xFF64748B),
+                        ),
+                      ),
                     ),
                     if (hasAppts) ...[
-                      const SizedBox(height: 3),
-                      ...data.entries.take(2).map((e) => Container(
-                            margin: const EdgeInsets.only(bottom: 1, left: 2, right: 2),
-                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                            child: Text(
-                              '${e.key.replaceFirst('Dr. ', '').split(' ').first} (${e.value.length})',
-                              style: TextStyle(fontSize: 6, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
-                              overflow: TextOverflow.ellipsis,
+                      const SizedBox(height: 1),
+                      ...data.entries.take(2).map((e) => Padding(
+                            padding: const EdgeInsets.only(left: 1.5, right: 1.5, bottom: 1),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                '${e.key.replaceFirst('Dr. ', '').split(' ').first} (${e.value.length})',
+                                style: TextStyle(
+                                  fontSize: 6,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           )),
                     ],
