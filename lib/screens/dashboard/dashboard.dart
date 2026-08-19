@@ -54,6 +54,7 @@ const _kCards = [
 //  NUMBER HELPERS
 // ─────────────────────────────────────────────
 String _money(double v) => NumberFormat('#,###').format(v.round());
+String _fmt(num v) => NumberFormat('#,###').format(v);
 String _compact(double v) {
   final abs = v.abs();
   if (abs >= 10000000) return '${(v / 10000000).toStringAsFixed(2)}Cr';
@@ -142,7 +143,7 @@ class _AnimatedCounterState extends State<_AnimatedCounter>
         final val = _animation.value;
         final text = widget.isCurrency
             ? 'PKR ${_money(val)}'
-            : val.round().toString();
+            : _fmt(val.round());
         return Text(text, style: widget.style);
       },
     );
@@ -249,9 +250,9 @@ class _StatCard extends StatelessWidget {
           color: _isRevenue && !_profit
               ? const Color(0xFFFFF1F2)
               : Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected ? card.accent : Colors.grey.shade100,
+            color: selected ? card.accent : const Color(0xFFEDF2F7),
             width: selected ? 1.8 : 1,
           ),
           boxShadow: [
@@ -263,7 +264,7 @@ class _StatCard extends StatelessWidget {
               )
             else
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.03),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 4,
                 offset: const Offset(0, 1.5),
               ),
@@ -332,7 +333,7 @@ class _StatCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      _count.toString(),
+                      _fmt(_count),
                       style: TextStyle(
                         fontSize: 8.5,
                         fontWeight: FontWeight.w700,
@@ -644,9 +645,9 @@ class _BreakdownPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: const Color(0xFFEDF2F7)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 3)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 3)),
         ],
       ),
       child: Column(
@@ -680,7 +681,7 @@ class _BreakdownPanel extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         card != null
-                            ? '${sortedHeads.length} ${_isConsult ? 'doctors' : 'heads'} · tap a row for records'
+                            ? '${_fmt(sortedHeads.length)} ${_isConsult ? 'doctors' : 'heads'} · tap a row for records'
                             : 'Select a card or bar above to view detail',
                         style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
                       ),
@@ -810,7 +811,7 @@ class _BreakdownPanel extends StatelessWidget {
                           SizedBox(
                             width: 40,
                             child: Text(
-                              h.qty.toString(),
+                              _fmt(h.qty),
                               style: TextStyle(fontSize: 10, color: Colors.grey.shade500, fontFamily: 'monospace'),
                               textAlign: TextAlign.right,
                             ),
@@ -856,7 +857,7 @@ class _BreakdownPanel extends StatelessWidget {
                   ),
                   SizedBox(
                     width: 40,
-                    child: Text(totalQty.toString(), style: const TextStyle(fontSize: 10, color: Color(0xFF334155), fontFamily: 'monospace'), textAlign: TextAlign.right),
+                    child: Text(_fmt(totalQty), style: const TextStyle(fontSize: 10, color: Color(0xFF334155), fontFamily: 'monospace'), textAlign: TextAlign.right),
                   ),
                   SizedBox(
                     width: 80,
@@ -1047,7 +1048,7 @@ class _HeadDetailDialogState extends State<_HeadDetailDialog> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${widget.label} · $_total record${_total == 1 ? '' : 's'} · ${DateFormat('d MMM yyyy').format(widget.dateFrom)} – ${DateFormat('d MMM yyyy').format(widget.dateTo)}${widget.shift != 'All' ? ' · ${widget.shift} shift' : ''}',
+                          '${widget.label} · ${_fmt(_total)} record${_total == 1 ? '' : 's'} · ${DateFormat('d MMM yyyy').format(widget.dateFrom)} – ${DateFormat('d MMM yyyy').format(widget.dateTo)}${widget.shift != 'All' ? ' · ${widget.shift} shift' : ''}',
                           style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                         ),
                       ],
@@ -1171,7 +1172,7 @@ class _HeadDetailDialogState extends State<_HeadDetailDialog> {
                     child: Text(
                       _total == 0
                           ? 'No records'
-                          : 'Showing $firstOnPage–$lastOnPage of $_total · Total: PKR ${_money(pageTotalAmount)}${_isConsult ? ' · Dr: PKR ${_money(pageTotalDrShare)}' : ''}',
+                          : 'Showing ${_fmt(firstOnPage)}–${_fmt(lastOnPage)} of ${_fmt(_total)} · Total: PKR ${_money(pageTotalAmount)}${_isConsult ? ' · Dr: PKR ${_money(pageTotalDrShare)}' : ''}',
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1313,13 +1314,13 @@ class _AttendancePanelState extends State<_AttendancePanel> {
                                   TextSpan(text: DateFormat('d MMM yyyy').format(prov.dateFrom)),
                                   const TextSpan(text: ' · '),
                                   TextSpan(
-                                    text: '$exceptions needing attention',
+                                    text: '${_fmt(exceptions)} needing attention',
                                     style: TextStyle(
                                       color: exceptions > 0 ? const Color(0xFFE11D48) : const Color(0xFF059669),
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  TextSpan(text: ' of ${records.length}'),
+                                  TextSpan(text: ' of ${_fmt(records.length)}'),
                                 ],
                               ),
                             )
@@ -1461,7 +1462,7 @@ class _AttendancePanelState extends State<_AttendancePanel> {
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     alignment: Alignment.center,
                     child: Text(
-                      _showAll ? 'Show exceptions only' : 'Show all ${records.length}',
+                      _showAll ? 'Show exceptions only' : 'Show all ${_fmt(records.length)}',
                       style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
                     ),
                   ),
@@ -1487,9 +1488,9 @@ class _TasksPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: const Color(0xFFEDF2F7)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 3)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 3)),
         ],
       ),
       child: Column(
@@ -1822,16 +1823,18 @@ class _DashboardBodyState extends State<_DashboardBody> {
                 ? Center(
                     key: const ValueKey('loader'),
                     child: CustomLoader(size: 50, color: _teal))
-                : SingleChildScrollView(
+                : Container(
                     key: const ValueKey('content'),
-                    physics: const AlwaysScrollableScrollPhysics(
-                        parent: BouncingScrollPhysics()),
-                    padding: EdgeInsets.symmetric(
-                        horizontal: screenWidth > 800 ? 24 : 16,
-                        vertical: 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                    color: const Color(0xFFF8F9FA),
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics()),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: screenWidth > 800 ? 24 : 16,
+                          vertical: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                         // ── Header & Range Label ────────────────────────────
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2151,6 +2154,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
                       ],
                     ),
                   ),
+                ),
           ),
         );
       },
@@ -2202,7 +2206,27 @@ class _DashboardBodyState extends State<_DashboardBody> {
               ],
             ),
           ),
-
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: prov.selectedShiftType,
+                isDense: true,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                items: ['All', 'Morning', 'Evening', 'Night', 'Unassigned']
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s == 'All' ? 'All Shifts' : s)))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) prov.setSelectedShiftType(val);
+                },
+              ),
+            ),
+          ),
           // 2. Date From Picker
           GestureDetector(
             onTap: () async {
@@ -2267,28 +2291,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
             ),
           ),
 
-          // 4. Shift Selector
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: prov.selectedShiftType,
-                isDense: true,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
-                items: ['All', 'Morning', 'Evening', 'Night', 'Unassigned']
-                    .map((s) => DropdownMenuItem(value: s, child: Text(s == 'All' ? 'All Shifts' : s)))
-                    .toList(),
-                onChanged: (val) {
-                  if (val != null) prov.setSelectedShiftType(val);
-                },
-              ),
-            ),
-          ),
 
           // // 5. Refresh Button
           // GestureDetector(
@@ -2358,10 +2360,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: const Color(0xFFEDF2F7)),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
+              color: Colors.black.withValues(alpha: 0.02),
               blurRadius: 12,
               offset: const Offset(0, 4))
         ],
