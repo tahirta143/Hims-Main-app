@@ -43,6 +43,7 @@ import '../../screens/reports/shift_report_screen.dart';
 import '../../screens/reports/monthly_report_screen.dart';
 import '../../screens/reports/yearly_report_screen.dart';
 import '../../screens/reports/opd_report_screen.dart';
+import '../../screens/reports/accounts_report_screen.dart';
 import '../../screens/reports/payroll_report_screen.dart';
 import '../../screens/reports/blank_report_screen.dart';
 
@@ -492,7 +493,7 @@ class _BaseScaffoldState extends State<BaseScaffold> {
         screen = const PayrollReportScreen();
         break;
       case 41:
-        screen = const BlankReportScreen(title: 'Accounts', drawerIndex: 41);
+        screen = const AccountsReportScreen();
         break;
       case 100:
         screen = const SyncDashboardScreen();

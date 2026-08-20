@@ -30,9 +30,8 @@ class _LabReportScreenState extends State<LabReportScreen> {
     super.initState();
     _tableVertCtrl.addListener(_onTableScroll);
     _tableHorizCtrl.addListener(_syncHorizontalScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<LabReportProvider>().fetchReport();
-    });
+    // Removed automatic fetchReport() to match React behavior:
+    // Page starts empty until filters are applied.
   }
 
   @override
@@ -71,6 +70,25 @@ class _LabReportScreenState extends State<LabReportScreen> {
     return 'PKR ${NumberFormat('#,##0').format(val)}';
   }
 
+  String _formatDateStr(String val) {
+    if (val.isEmpty || val == '—') return val;
+    final d = DateTime.tryParse(val);
+    if (d == null) return val;
+    return DateFormat('d MMM yyyy').format(d);
+  }
+
+  String _formatTime12(String val) {
+    if (val.isEmpty || val == '—') return val;
+    final parts = val.split(':');
+    if (parts.length < 2) return val;
+    final hour = int.tryParse(parts[0]);
+    final min = int.tryParse(parts[1]);
+    if (hour == null || min == null) return val;
+    final ampm = hour >= 12 ? 'PM' : 'AM';
+    final h12 = hour % 12 == 0 ? 12 : hour % 12;
+    return '$h12:${min.toString().padLeft(2, '0')} $ampm';
+  }
+
   Future<void> _pickDate(BuildContext context, bool isFrom) async {
     final provider = context.read<LabReportProvider>();
     final initialDate = DateTime.now();
@@ -103,7 +121,7 @@ class _LabReportScreenState extends State<LabReportScreen> {
 
     final List<String> headers = isSummarized
         ? ["Sr", "Test Name", "Combined Records", "Amount (PKR)", "Company Share (PKR)"]
-        : ["Sr", "Date", "Time", "Test Name", "Shift", "Amount (PKR)", "Company Share (PKR)"];
+        : ["Sr", "Date", "Time", "MR No", "Patient", "Service", "Detail", "Shift", "Amount (PKR)", "Company Share (PKR)"];
 
     final List<List<String>> rows = items.asMap().entries.map((entry) {
       final item = entry.value;
@@ -111,7 +129,7 @@ class _LabReportScreenState extends State<LabReportScreen> {
       if (isSummarized) {
         return [
           '$idx',
-          item.testName,
+          item.serviceDetail,
           '${item.testCount}',
           item.testAmount.toStringAsFixed(2),
           item.companyShare.toStringAsFixed(2),
@@ -119,15 +137,19 @@ class _LabReportScreenState extends State<LabReportScreen> {
       } else {
         return [
           '$idx',
-          item.testDate,
-          item.testTime,
-          item.testName,
+          _formatDateStr(item.testDate),
+          _formatTime12(item.testTime),
+          item.mrNumber,
+          item.patientName,
+          item.opdService,
+          item.serviceDetail,
           item.shiftType,
           item.testAmount.toStringAsFixed(2),
           item.companyShare.toStringAsFixed(2),
         ];
       }
     }).toList();
+    // ... remaining logic for CSV (PDF-based)
 
     final pdf = pw.Document();
     pdf.addPage(
@@ -212,14 +234,14 @@ class _LabReportScreenState extends State<LabReportScreen> {
               pw.TableHelper.fromTextArray(
                 headers: isSummarized
                     ? ["Sr", "Test Name", "Combined Records", "Amount (PKR)", "Company Share (PKR)"]
-                    : ["Sr", "Date", "Time", "Test Name", "Shift", "Amount (PKR)", "Company Share (PKR)"],
+                    : ["Sr", "Date", "Time", "MR No", "Patient", "Service", "Detail", "Shift", "Amount (PKR)", "Company Share (PKR)"],
                 data: items.asMap().entries.map((entry) {
                   final idx = entry.key + 1;
                   final item = entry.value;
                   if (isSummarized) {
                     return [
                       '$idx',
-                      item.testName,
+                      item.serviceDetail,
                       '${item.testCount} records',
                       'PKR ${NumberFormat('#,##0').format(item.testAmount)}',
                       'PKR ${NumberFormat('#,##0').format(item.companyShare)}',
@@ -227,9 +249,12 @@ class _LabReportScreenState extends State<LabReportScreen> {
                   } else {
                     return [
                       '$idx',
-                      item.testDate,
-                      item.testTime,
-                      item.testName,
+                      _formatDateStr(item.testDate),
+                      _formatTime12(item.testTime),
+                      item.mrNumber,
+                      item.patientName,
+                      item.opdService,
+                      item.serviceDetail,
                       item.shiftType,
                       'PKR ${NumberFormat('#,##0').format(item.testAmount)}',
                       'PKR ${NumberFormat('#,##0').format(item.companyShare)}',
@@ -354,7 +379,7 @@ class _LabReportScreenState extends State<LabReportScreen> {
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final isMobile = mediaQuery.size.width < 600;
+    final isCompact = mediaQuery.size.width < 360;
 
     final provider = context.watch<LabReportProvider>();
     final items = provider.filteredTests;
@@ -364,218 +389,126 @@ class _LabReportScreenState extends State<LabReportScreen> {
     return BaseScaffold(
       title: 'Lab Report',
       drawerIndex: 31,
-      body: RefreshIndicator(
-        onRefresh: () => provider.fetchReport(),
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Banner Card (Teal Gradient matching other screens)
-              Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(isMobile ? 14 : 18),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [_teal, Color(0xFF00897B)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _teal.withValues(alpha: 0.3),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: () => provider.fetchReport(),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.all(isCompact ? 10 : 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Filters Card at the top
+                _buildDashboardCard(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'LAB SUMMARY REPORT',
-                          style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                          'FILTER LAB REPORTS',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _teal, letterSpacing: 0.8),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            '${provider.totalTestCount} Test(s)',
-                            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'TOTAL REVENUE',
-                                style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _formatMoney(provider.totalTestAmount),
-                                style: TextStyle(color: Colors.white, fontSize: isMobile ? 18 : 22, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(width: 1, height: 36, color: Colors.white30),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'COMPANY SHARE',
-                                style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _formatMoney(provider.totalCompanyShare),
-                                style: TextStyle(color: Colors.white, fontSize: isMobile ? 18 : 22, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+                        const SizedBox(height: 12),
 
-              const SizedBox(height: 16),
+                        // Search input
+                        TextField(
+                          controller: _searchCtrl,
+                          onChanged: (val) {
+                            provider.setSearchQuery(val);
+                            setState(() => _visibleCount = 10);
+                          },
+                          decoration: InputDecoration(
+                            hintText: 'Search MR, patient, test, service...',
+                            prefixIcon: const Icon(Icons.search, color: _teal, size: 18),
+                            suffixIcon: _searchCtrl.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear, size: 16),
+                                    onPressed: () {
+                                      _searchCtrl.clear();
+                                      provider.setSearchQuery('');
+                                      setState(() => _visibleCount = 10);
+                                    },
+                                  )
+                                : null,
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 10),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                          ),
+                        ),
 
-              // Filters Card (Structured in 2-Column Grid Rows)
-              _buildDashboardCard(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'FILTER LAB REPORTS',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: _teal, letterSpacing: 0.8),
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 10),
 
-                      // Row 1 (2 Columns Grid): Search & Date From
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _searchCtrl,
-                              onChanged: (val) {
-                                provider.setSearchQuery(val);
-                                setState(() => _visibleCount = 10);
-                              },
-                              decoration: InputDecoration(
-                                hintText: 'Search test name...',
-                                prefixIcon: const Icon(Icons.search, color: _teal, size: 18),
-                                suffixIcon: _searchCtrl.text.isNotEmpty
-                                    ? IconButton(
-                                        icon: const Icon(Icons.clear, size: 16),
-                                        onPressed: () {
-                                          _searchCtrl.clear();
-                                          provider.setSearchQuery('');
-                                          setState(() => _visibleCount = 10);
-                                        },
-                                      )
-                                    : null,
-                                filled: true,
-                                fillColor: Colors.grey.shade50,
-                                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 10),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  borderSide: BorderSide(color: Colors.grey.shade300),
+                        // Date Pickers Row
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                                  side: BorderSide(color: Colors.grey.shade300),
+                                ),
+                                onPressed: () => _pickDate(context, true),
+                                icon: const Icon(Icons.calendar_today, size: 14, color: _teal),
+                                label: Text(
+                                  provider.dateFrom.isEmpty ? 'Date From' : provider.dateFrom,
+                                  style: TextStyle(fontSize: 11, color: provider.dateFrom.isEmpty ? Colors.grey : Colors.black87),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                                side: BorderSide(color: Colors.grey.shade300),
-                              ),
-                              onPressed: () => _pickDate(context, true),
-                              icon: const Icon(Icons.calendar_today, size: 14, color: _teal),
-                              label: Text(
-                                provider.dateFrom.isEmpty ? 'Date From' : provider.dateFrom,
-                                style: TextStyle(fontSize: 11, color: provider.dateFrom.isEmpty ? Colors.grey : Colors.black87),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 10),
-
-                      // Row 2 (2 Columns Grid): Date To & Shift Dropdown
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                                side: BorderSide(color: Colors.grey.shade300),
-                              ),
-                              onPressed: () => _pickDate(context, false),
-                              icon: const Icon(Icons.calendar_today, size: 14, color: _teal),
-                              label: Text(
-                                provider.dateTo.isEmpty ? 'Date To' : provider.dateTo,
-                                style: TextStyle(fontSize: 11, color: provider.dateTo.isEmpty ? Colors.grey : Colors.black87),
-                                overflow: TextOverflow.ellipsis,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                                  side: BorderSide(color: Colors.grey.shade300),
+                                ),
+                                onPressed: () => _pickDate(context, false),
+                                icon: const Icon(Icons.calendar_today, size: 14, color: _teal),
+                                label: Text(
+                                  provider.dateTo.isEmpty ? 'Date To' : provider.dateTo,
+                                  style: TextStyle(fontSize: 11, color: provider.dateTo.isEmpty ? Colors.grey : Colors.black87),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              initialValue: provider.selectedShift.isEmpty ? '' : provider.selectedShift,
-                              decoration: InputDecoration(
-                                labelText: 'Shift',
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                              items: const [
-                                DropdownMenuItem(value: '', child: Text('All Shifts', style: TextStyle(fontSize: 12))),
-                                DropdownMenuItem(value: 'Morning', child: Text('Morning', style: TextStyle(fontSize: 12))),
-                                DropdownMenuItem(value: 'Evening', child: Text('Evening', style: TextStyle(fontSize: 12))),
-                                DropdownMenuItem(value: 'Night', child: Text('Night', style: TextStyle(fontSize: 12))),
-                              ],
-                              onChanged: (val) {
-                                provider.setSelectedShift(val ?? '');
-                                setState(() => _visibleCount = 10);
-                                provider.fetchReport();
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
 
-                      // Row 3: Summarize Button (Shown ONLY when provider.hasActiveFilters is true!) & Clear Filters
-                      if (provider.hasActiveFilters) ...[
                         const SizedBox(height: 10),
+
+                        // Shift & Sort Row
                         Row(
                           children: [
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                value: ['Morning', 'Evening', 'Night'].contains(provider.selectedShift) ? provider.selectedShift : '',
+                                decoration: InputDecoration(
+                                  labelText: 'Shift',
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                items: const [
+                                  DropdownMenuItem(value: '', child: Text('All Shifts', style: TextStyle(fontSize: 12))),
+                                  DropdownMenuItem(value: 'Morning', child: Text('Morning', style: TextStyle(fontSize: 12))),
+                                  DropdownMenuItem(value: 'Evening', child: Text('Evening', style: TextStyle(fontSize: 12))),
+                                  DropdownMenuItem(value: 'Night', child: Text('Night', style: TextStyle(fontSize: 12))),
+                                ],
+                                onChanged: (val) {
+                                  provider.setSelectedShift(val ?? '');
+                                  setState(() => _visibleCount = 10);
+                                  provider.fetchReport();
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
@@ -590,211 +523,251 @@ class _LabReportScreenState extends State<LabReportScreen> {
                                 },
                                 icon: const Icon(Icons.compress_rounded, size: 16),
                                 label: Text(
-                                  provider.summarized ? 'Summarized' : 'Summarize Data',
+                                  provider.summarized ? 'Summarized' : 'Summarize',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            TextButton.icon(
-                              onPressed: () {
-                                _searchCtrl.clear();
-                                provider.resetFilters();
-                                setState(() => _visibleCount = 10);
-                              },
-                              icon: const Icon(Icons.clear_all, size: 16, color: Colors.red),
-                              label: const Text('Clear Filters', style: TextStyle(color: Colors.red, fontSize: 11)),
+                          ],
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // Action Buttons Row (Refresh, Export CSV, Print)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                ),
+                                onPressed: () => provider.fetchReport(),
+                                icon: const Icon(Icons.refresh, size: 14, color: _teal),
+                                label: const Text('Refresh', style: TextStyle(fontSize: 11, color: _teal)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF2E7D32),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                ),
+                                onPressed: () => _handleExportCSV(context),
+                                icon: const Icon(Icons.download, size: 14),
+                                label: const Text('CSV', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF374151),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                ),
+                                onPressed: () => _handlePrint(context),
+                                icon: const Icon(Icons.print, size: 14),
+                                label: const Text('Print', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                              ),
                             ),
                           ],
                         ),
                       ],
+                    ),
+                  ),
+                ),
 
-                      const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
-                      // Row 4: Action Buttons Row (Refresh, Export CSV, Print)
-                      Row(
+                // 2. Stats Cards
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 2.2,
+                  children: [
+                    _buildStatCard('Lab Records', provider.totalTestCount.toString(), Colors.blue.shade50, Colors.blue.shade700),
+                    _buildStatCard('Visible Rows', totalItems.toString(), Colors.grey.shade50, Colors.grey.shade700),
+                    _buildStatCard('Total Amount', _formatMoney(provider.totalTestAmount), Colors.green.shade50, Colors.green.shade700),
+                    _buildStatCard('Company Share', _formatMoney(provider.totalCompanyShare), Colors.deepPurple.shade50, Colors.deepPurple.shade700),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // 3. Data Table
+                if (provider.isLoading)
+                  const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: CustomLoader(size: 46, color: _teal),
+                  )
+                else if (provider.errorMessage != null)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Text(provider.errorMessage!, style: const TextStyle(color: Colors.red)),
+                    ),
+                  )
+                else if (!provider.hasActiveFilters && items.isEmpty)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(60),
+                      child: Column(
                         children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                              ),
-                              onPressed: () => provider.fetchReport(),
-                              icon: const Icon(Icons.refresh, size: 14, color: _teal),
-                              label: const Text('Refresh', style: TextStyle(fontSize: 11, color: _teal)),
-                            ),
+                          Icon(Icons.filter_list_alt, size: 48, color: Colors.grey),
+                          SizedBox(height: 12),
+                          Text(
+                            'Apply filters or search to load report',
+                            style: TextStyle(color: Colors.grey, fontSize: 15, fontWeight: FontWeight.w500),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2E7D32),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                              ),
-                              onPressed: () => _handleExportCSV(context),
-                              icon: const Icon(Icons.download, size: 14),
-                              label: const Text('Export CSV', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF374151),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                              ),
-                              onPressed: () => _handlePrint(context),
-                              icon: const Icon(Icons.print, size: 14),
-                              label: const Text('Print', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                            ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Use the search bar or date filters above',
+                            style: TextStyle(color: Colors.black26, fontSize: 12),
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Data Table Container (Sticky Header + Internal Body Scroll)
-              if (provider.isLoading)
-                const Padding(
-                  padding: EdgeInsets.all(40),
-                  child: CustomLoader(size: 46, color: _teal),
-                )
-              else if (provider.errorMessage != null)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Text(provider.errorMessage!, style: const TextStyle(color: Colors.red)),
-                  ),
-                )
-              else if (items.isEmpty)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(40),
-                    child: Column(
-                      children: [
-                        Icon(Icons.biotech_outlined, size: 48, color: Colors.grey),
-                        SizedBox(height: 8),
-                        Text('No lab records found', style: TextStyle(color: Colors.grey, fontSize: 16)),
-                      ],
                     ),
-                  ),
-                )
-              else
-                _buildDashboardCard(
-                  child: SizedBox(
-                    height: 440,
-                    child: Column(
-                      children: [
-                        // FIXED STICKY TABLE HEADER
-                        SingleChildScrollView(
-                          controller: _headerHorizCtrl,
-                          scrollDirection: Axis.horizontal,
-                          physics: const NeverScrollableScrollPhysics(),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: _teal.withValues(alpha: 0.1),
-                              borderRadius: const BorderRadius.only(
-                                topLeft: Radius.circular(14),
-                                topRight: Radius.circular(14),
+                  )
+                else if (items.isEmpty)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(40),
+                      child: Column(
+                        children: [
+                          Icon(Icons.biotech_outlined, size: 48, color: Colors.grey),
+                          SizedBox(height: 8),
+                          Text('No lab records found', style: TextStyle(color: Colors.grey, fontSize: 16)),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  _buildDashboardCard(
+                    child: SizedBox(
+                      height: 440,
+                      child: Column(
+                        children: [
+                          // FIXED STICKY TABLE HEADER
+                          SingleChildScrollView(
+                            controller: _headerHorizCtrl,
+                            scrollDirection: Axis.horizontal,
+                            physics: const NeverScrollableScrollPhysics(),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: _teal.withValues(alpha: 0.1),
+                                borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(14),
+                                  topRight: Radius.circular(14),
+                                ),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                              child: Row(
+                                children: provider.summarized
+                                    ? [
+                                        _cell('Sr.', 60, isHeader: true),
+                                        _cell('Test Name', 200, isHeader: true),
+                                        _cell('Records', 100, isHeader: true, textAlign: TextAlign.center),
+                                        _cell('Amount', 130, isHeader: true, textAlign: TextAlign.right),
+                                        _cell('Company Share', 130, isHeader: true, textAlign: TextAlign.right),
+                                      ]
+                                    : [
+                                        _cell('Sr.', 50, isHeader: true),
+                                        _cell('Date', 100, isHeader: true),
+                                        _cell('Time', 80, isHeader: true),
+                                        _cell('MR No', 100, isHeader: true),
+                                        _cell('Patient', 140, isHeader: true),
+                                        _cell('Service', 120, isHeader: true),
+                                        _cell('Detail', 160, isHeader: true),
+                                        _cell('Shift', 90, isHeader: true),
+                                        _cell('Amount', 110, isHeader: true, textAlign: TextAlign.right),
+                                        _cell('Share', 110, isHeader: true, textAlign: TextAlign.right),
+                                      ],
                               ),
                             ),
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                            child: Row(
-                              children: provider.summarized
-                                  ? [
-                                      _cell('Sr.', 60, isHeader: true),
-                                      _cell('Test Name', 200, isHeader: true),
-                                      _cell('Combined Records', 140, isHeader: true, textAlign: TextAlign.center),
-                                      _cell('Amount', 130, isHeader: true, textAlign: TextAlign.right),
-                                      _cell('Company Share', 130, isHeader: true, textAlign: TextAlign.right),
-                                    ]
-                                  : [
-                                      _cell('Sr.', 60, isHeader: true),
-                                      _cell('Receipt Srl', 100, isHeader: true),
-                                      _cell('Test Name', 180, isHeader: true),
-                                      _cell('Date & Time', 150, isHeader: true),
-                                      _cell('Shift', 100, isHeader: true),
-                                      _cell('Amount', 120, isHeader: true, textAlign: TextAlign.right),
-                                      _cell('Company Share', 120, isHeader: true, textAlign: TextAlign.right),
-                                    ],
-                            ),
                           ),
-                        ),
-                        const Divider(height: 1, thickness: 1),
+                          const Divider(height: 1, thickness: 1),
 
-                        // SCROLLABLE TABLE BODY
-                        Expanded(
-                          child: SingleChildScrollView(
-                            controller: _tableVertCtrl,
-                            scrollDirection: Axis.vertical,
+                          // SCROLLABLE TABLE BODY
+                          Expanded(
                             child: SingleChildScrollView(
-                              controller: _tableHorizCtrl,
-                              scrollDirection: Axis.horizontal,
-                              child: Column(
-                                children: visibleItems.asMap().entries.map((entry) {
-                                  final item = entry.value;
-                                  return Container(
-                                    decoration: BoxDecoration(
-                                      border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                    child: Row(
-                                      children: provider.summarized
-                                          ? [
-                                              _cell('${entry.key + 1}', 60),
-                                              _cell(item.testName, 200, isBold: true),
-                                              SizedBox(
-                                                width: 140,
-                                                child: Center(
-                                                  child: Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: _teal.withValues(alpha: 0.15),
-                                                      borderRadius: BorderRadius.circular(12),
-                                                    ),
-                                                    child: Text(
-                                                      '${item.testCount} records',
-                                                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: _teal),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                              _cell(_formatMoney(item.testAmount), 130, color: const Color(0xFF2E7D32), isBold: true, textAlign: TextAlign.right),
-                                              _cell(_formatMoney(item.companyShare), 130, textAlign: TextAlign.right),
-                                            ]
-                                          : [
-                                              _cell('${entry.key + 1}', 60),
-                                              _cell(item.receiptSrl.toString(), 100),
-                                              _cell(item.testName, 180, isBold: true),
-                                              _cell('${item.testDate} ${item.testTime}'.trim(), 150),
-                                              _cell(item.shiftType, 100),
-                                              _cell(_formatMoney(item.testAmount), 120, color: const Color(0xFF2E7D32), isBold: true, textAlign: TextAlign.right),
-                                              _cell(_formatMoney(item.companyShare), 120, textAlign: TextAlign.right),
-                                            ],
-                                    ),
-                                  );
-                                }).toList(),
+                              controller: _tableVertCtrl,
+                              scrollDirection: Axis.vertical,
+                              child: SingleChildScrollView(
+                                controller: _tableHorizCtrl,
+                                scrollDirection: Axis.horizontal,
+                                child: Column(
+                                  children: visibleItems.asMap().entries.map((entry) {
+                                    final item = entry.value;
+                                    return Container(
+                                      decoration: BoxDecoration(
+                                        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                      child: Row(
+                                        children: provider.summarized
+                                            ? [
+                                                _cell('${entry.key + 1}', 60),
+                                                _cell(item.serviceDetail, 200),
+                                                _cell('${item.testCount}', 100, textAlign: TextAlign.center),
+                                                _cell(_formatMoney(item.testAmount), 130, textAlign: TextAlign.right, color: const Color(0xFF2E7D32)),
+                                                _cell(_formatMoney(item.companyShare), 130, textAlign: TextAlign.right),
+                                              ]
+                                            : [
+                                                _cell('${entry.key + 1}', 50),
+                                                _cell(_formatDateStr(item.testDate), 100),
+                                                _cell(_formatTime12(item.testTime), 80),
+                                                _cell(item.mrNumber, 100),
+                                                _cell(item.patientName, 140),
+                                                _cell(item.opdService, 120),
+                                                _cell(item.serviceDetail, 160),
+                                                _cell(item.shiftType, 90),
+                                                _cell(_formatMoney(item.testAmount), 110, textAlign: TextAlign.right, color: const Color(0xFF2E7D32)),
+                                                _cell(_formatMoney(item.companyShare), 110, textAlign: TextAlign.right),
+                                              ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        _buildLoadMoreFooter(totalItems),
-                      ],
+                          _buildLoadMoreFooter(totalItems),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, Color bgColor, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: textColor.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.8), letterSpacing: 0.5)),
+          const SizedBox(height: 4),
+          FittedBox(child: Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor))),
+        ],
       ),
     );
   }

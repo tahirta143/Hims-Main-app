@@ -15,8 +15,15 @@ class LabReportProvider extends ChangeNotifier {
   String _searchQuery = '';
   String _dateFrom = '';
   String _dateTo = '';
-  String _selectedShift = '';
+  String _selectedShift = 'All';
   bool _summarized = false;
+
+  LabReportProvider() {
+    final now = DateTime.now();
+    final today = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    _dateFrom = today;
+    _dateTo = today;
+  }
 
   bool get isLoading => _loading;
   String? get errorMessage => _errorMessage;
@@ -27,11 +34,14 @@ class LabReportProvider extends ChangeNotifier {
   String get selectedShift => _selectedShift;
   bool get summarized => _summarized;
 
-  bool get hasActiveFilters =>
-      _searchQuery.trim().isNotEmpty ||
-      _dateFrom.isNotEmpty ||
-      _dateTo.isNotEmpty ||
-      _selectedShift.isNotEmpty;
+  bool get hasActiveFilters {
+    final now = DateTime.now();
+    final today = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    return _searchQuery.trim().isNotEmpty ||
+           _selectedShift != 'All' ||
+           _dateFrom != today ||
+           _dateTo != today;
+  }
 
   @override
   void dispose() {
@@ -106,12 +116,16 @@ class LabReportProvider extends ChangeNotifier {
       final q = _searchQuery.toLowerCase().trim();
       result = result.where((item) {
         return item.testName.toLowerCase().contains(q) ||
+            item.mrNumber.toLowerCase().contains(q) ||
+            item.patientName.toLowerCase().contains(q) ||
+            item.opdService.toLowerCase().contains(q) ||
+            item.serviceDetail.toLowerCase().contains(q) ||
             item.shiftType.toLowerCase().contains(q) ||
             item.testAmount.toString().contains(q);
       }).toList();
     }
 
-    if (_selectedShift.isNotEmpty) {
+    if (_selectedShift.isNotEmpty && _selectedShift != 'All') {
       result = result.where((item) => item.shiftType.toLowerCase() == _selectedShift.toLowerCase()).toList();
     }
 
@@ -125,18 +139,27 @@ class LabReportProvider extends ChangeNotifier {
     if (_summarized) {
       final Map<String, LabReportItem> map = {};
       for (final item in result) {
-        final name = item.testName.isEmpty ? 'Unknown' : item.testName;
+        final label = item.serviceDetail.trim().isEmpty || item.serviceDetail == '—' 
+            ? item.testName 
+            : item.serviceDetail;
+        
+        final name = label.isEmpty ? 'Unknown' : label;
+        
         if (!map.containsKey(name)) {
           map[name] = LabReportItem(
             id: item.id,
             receiptSrl: name,
-            testName: name,
+            testName: item.testName,
             testAmount: item.testAmount,
             companyShare: item.companyShare,
             testDate: '—',
             testTime: '—',
             shiftType: '—',
             testCount: 1,
+            mrNumber: '—',
+            patientName: '—',
+            opdService: item.opdService,
+            serviceDetail: name,
           );
         } else {
           final existing = map[name]!;
@@ -150,6 +173,10 @@ class LabReportProvider extends ChangeNotifier {
             testTime: '—',
             shiftType: '—',
             testCount: existing.testCount + 1,
+            mrNumber: '—',
+            patientName: '—',
+            opdService: existing.opdService,
+            serviceDetail: existing.serviceDetail,
           );
         }
       }

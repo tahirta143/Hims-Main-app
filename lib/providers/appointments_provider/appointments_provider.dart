@@ -3,14 +3,37 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../core/services/auth_storage_service.dart';
+import '../../core/services/consultation_api_service.dart';
 import '../../global/global_api.dart';
 import '../../models/appointment_model/appointments_model.dart';
+import '../../models/consultation_model/doctor_model.dart';
 import '../../core/utils/database_helper.dart';
+
+class AppointmentSummary {
+  final String doctorName;
+  final int totalCount;
+  final int firstVisits;
+  final int followUps;
+  final int booked;
+  final int completed;
+  final int cancelled;
+
+  AppointmentSummary({
+    required this.doctorName,
+    required this.totalCount,
+    required this.firstVisits,
+    required this.followUps,
+    required this.booked,
+    required this.completed,
+    required this.cancelled,
+  });
+}
 
 class AppointmentsProvider extends ChangeNotifier {
   static const String _baseUrl = '${GlobalApi.baseUrl}/appointments';
 
   final AuthStorageService _storage = AuthStorageService();
+  final ConsultationApiService _consultationApi = ConsultationApiService();
 
   Future<Map<String, String>> _authHeaders() async {
     final token = await _storage.getToken();
@@ -23,16 +46,18 @@ class AppointmentsProvider extends ChangeNotifier {
 
   // ── Raw data ───────────────────────────────────────────────────────────────
   List<AppointmentModel> _all = [];
+  List<DoctorModel> _doctors = [];
 
   // ── Filter state ───────────────────────────────────────────────────────────
   DateTime _dateFrom = DateTime.now();
   DateTime _dateTo = DateTime.now();
   TimeOfDay? _timeFrom;
   TimeOfDay? _timeTo;
-  String _selectedConsultant = 'All';
+  String _selectedDoctorId = 'All';
   String _selectedStatus = 'All Status';
   String _searchQuery = '';
   String _quickFilter = 'Today'; // 'Today' | 'This Week' | 'Date Range'
+  bool _isSummarized = false;
 
   // ── Loading ────────────────────────────────────────────────────────────────
   bool isLoading = false;
@@ -43,10 +68,12 @@ class AppointmentsProvider extends ChangeNotifier {
   DateTime get dateTo => _dateTo;
   TimeOfDay? get timeFrom => _timeFrom;
   TimeOfDay? get timeTo => _timeTo;
-  String get selectedConsultant => _selectedConsultant;
+  String get selectedDoctorId => _selectedDoctorId;
   String get selectedStatus => _selectedStatus;
   String get searchQuery => _searchQuery;
   String get quickFilter => _quickFilter;
+  List<DoctorModel> get doctors => _doctors;
+  bool get isSummarized => _isSummarized;
 
   List<AppointmentModel> get filtered {
     List<AppointmentModel> list = List.from(_all);
@@ -91,12 +118,11 @@ class AppointmentsProvider extends ChangeNotifier {
       }).toList();
     }
 
-    // Consultant filter
-    if (_selectedConsultant != 'All') {
+    // Consultant/Doctor filter
+    if (_selectedDoctorId != 'All') {
       list = list
           .where((a) =>
-      a.doctorName.toLowerCase() ==
-          _selectedConsultant.toLowerCase())
+      a.doctorSrlNo.toString() == _selectedDoctorId)
           .toList();
     }
 
@@ -144,7 +170,28 @@ class AppointmentsProvider extends ChangeNotifier {
     return 'PKR $formatted';
   }
 
-  /// Unique consultant names from all appointments
+  List<AppointmentSummary> get summarizedData {
+    final Map<String, List<AppointmentModel>> groups = {};
+    for (var a in filtered) {
+      final key = a.doctorName.isEmpty ? 'Unknown Doctor' : a.doctorName;
+      groups.putIfAbsent(key, () => []).add(a);
+    }
+
+    return groups.entries.map((e) {
+      final appts = e.value;
+      return AppointmentSummary(
+        doctorName: e.key,
+        totalCount: appts.length,
+        firstVisits: appts.where((a) => a.isFirstVisit).length,
+        followUps: appts.where((a) => !a.isFirstVisit).length,
+        booked: appts.where((a) => a.status.toLowerCase() == 'booked').length,
+        completed: appts.where((a) => a.status.toLowerCase() == 'completed').length,
+        cancelled: appts.where((a) => a.status.toLowerCase() == 'cancelled').length,
+      );
+    }).toList();
+  }
+
+  /// Unique consultant names from all appointments (legacy)
   List<String> get consultantNames {
     final names = _all.map((a) => a.doctorName).toSet().toList()..sort();
     return ['All', ...names];
@@ -158,10 +205,19 @@ class AppointmentsProvider extends ChangeNotifier {
   ];
 
   AppointmentsProvider() {
+    fetchDoctors();
     fetchAppointments();
   }
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
+  Future<void> fetchDoctors() async {
+    final result = await _consultationApi.fetchDoctors();
+    if (result.success) {
+      _doctors = result.doctors;
+      notifyListeners();
+    }
+  }
+
   Future<void> fetchAppointments() async {
     isLoading = true;
     errorMessage = null;
@@ -292,8 +348,8 @@ class AppointmentsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setConsultant(String c) {
-    _selectedConsultant = c;
+  void setDoctor(String doctorId) {
+    _selectedDoctorId = doctorId;
     notifyListeners();
   }
 
@@ -309,6 +365,11 @@ class AppointmentsProvider extends ChangeNotifier {
 
   void clearSearch() {
     _searchQuery = '';
+    notifyListeners();
+  }
+
+  void toggleSummarized() {
+    _isSummarized = !_isSummarized;
     notifyListeners();
   }
 

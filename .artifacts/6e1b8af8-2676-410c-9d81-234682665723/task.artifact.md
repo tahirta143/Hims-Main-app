@@ -1,0 +1,15 @@
+- [x] Update `LabReportItem` model
+    - [x] Add `mrNumber`, `patientName`, `opdService`, `serviceDetail`
+    - [x] Update `fromJson`
+- [x] Update `LabReportProvider`
+    - [x] Expand search logic in `filteredTests`
+    - [x] Update summarization grouping
+- [x] Refactor `LabReportScreen`
+    - [x] Reorder layout (Filters at top)
+    - [x] Add Stats Cards
+    - [x] Update Table columns
+    - [x] Remove bold styling from rows
+    - [x] Add Summarize button to filter card
+- [x] Verify functionality
+    - [x] Check CSV/PDF exports
+    - [x] Verify summarization math

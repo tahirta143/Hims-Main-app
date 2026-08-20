@@ -56,12 +56,12 @@ class _LiveClockBadgeState extends State<_LiveClockBadge> {
 
   String _fmtDate(DateTime d) {
     const days = [
-      'Monday', 'Tuesday', 'Wednesday', 'Thursday',
-      'Friday', 'Saturday', 'Sunday'
+      'Mon', 'Tue', 'Wed', 'Thu',
+      'Fri', 'Sat', 'Sun'
     ];
     const months = [
-      '', 'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
     ];
     return '${days[d.weekday - 1]}, ${months[d.month]} ${d.day}, ${d.year}';
   }
@@ -124,26 +124,30 @@ class _AppointmentBody extends StatelessWidget {
           : RefreshIndicator(
         color: const Color(0xFF00B5AD),
         onRefresh: () async => provider.refresh(),
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              // _ScreenHeader(),
-              const SizedBox(height: 16),
-              // Filters Card
-              const _FiltersCard(),
-              const SizedBox(height: 16),
-              // Stats Row
-              const _StatsRow(),
-              const SizedBox(height: 16),
-              // Appointments Table
-              const _AppointmentDetailsCard(),
-              const SizedBox(height: 24),
-            ],
-          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight - 136),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Filters Card
+                    const _FiltersCard(),
+                    const SizedBox(height: 16),
+                    // Stats Row
+                    const _StatsRow(),
+                    const SizedBox(height: 16),
+                    // Appointments Table
+                    const _AppointmentDetailsCard(),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            );
+          }
         ),
       ),
     );
@@ -252,29 +256,58 @@ class _FiltersCard extends StatelessWidget {
           ]),
           const SizedBox(height: 14),
 
-          // ── Date / Time / Consultant / Status row ──────────────────
-          sw >= 700
-              ? _WideFilterRow()
-              : _NarrowFilterColumn(),
+          // ── Date / Time / Doctor / Status row ──────────────────
+          if (sw >= 1100)
+            _WideFilterRow()
+          else if (sw >= 700)
+            const _MediumFilterLayout()
+          else
+            _NarrowFilterColumn(),
           const SizedBox(height: 12),
 
           // ── Search + Action Buttons ────────────────────────────────
-          sw >= 600
-              ? Row(children: [
-            Expanded(child: _SearchField()),
-            const SizedBox(width: 10),
-            _ActionButtons(),
-          ])
-              : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _SearchField(),
-                const SizedBox(height: 10),
-                _ActionButtons(),
-              ]),
+          if (sw >= 850)
+            Row(children: [
+              Expanded(child: _SearchField()),
+              const SizedBox(width: 16),
+              _ActionButtons(),
+            ])
+          else
+            Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SearchField(),
+                  const SizedBox(height: 16),
+                  _ActionButtons(),
+                ]),
         ],
       ),
     );
+  }
+}
+
+class _MediumFilterLayout extends StatelessWidget {
+  const _MediumFilterLayout();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      Row(children: [
+        Expanded(child: _DateField(label: 'Date From', isFrom: true)),
+        const SizedBox(width: 10),
+        Expanded(child: _DateField(label: 'Date To', isFrom: false)),
+        const SizedBox(width: 10),
+        Expanded(child: _DoctorDropdown()),
+      ]),
+      const SizedBox(height: 10),
+      Row(children: [
+        Expanded(child: _TimeField(label: 'Time From', isFrom: true)),
+        const SizedBox(width: 10),
+        Expanded(child: _TimeField(label: 'Time To', isFrom: false)),
+        const SizedBox(width: 10),
+        Expanded(child: _StatusDropdown()),
+      ]),
+    ]);
   }
 }
 
@@ -321,7 +354,7 @@ class _WideFilterRow extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(child: _TimeField(label: 'Time To', isFrom: false)),
         const SizedBox(width: 10),
-        Expanded(child: _ConsultantDropdown()),
+        Expanded(child: _DoctorDropdown()),
         const SizedBox(width: 10),
         Expanded(child: _StatusDropdown()),
       ],
@@ -346,7 +379,7 @@ class _NarrowFilterColumn extends StatelessWidget {
       ]),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: _ConsultantDropdown()),
+        Expanded(child: _DoctorDropdown()),
         const SizedBox(width: 10),
         Expanded(child: _StatusDropdown()),
       ]),
@@ -484,15 +517,15 @@ class _TimeField extends StatelessWidget {
   }
 }
 
-// ─── Consultant Dropdown ──────────────────────────────────────────────────────
-class _ConsultantDropdown extends StatelessWidget {
+// ─── Doctor Dropdown ──────────────────────────────────────────────────────────
+class _DoctorDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppointmentsProvider>();
-    final names = provider.consultantNames;
+    final doctors = provider.doctors;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Consultant', style: _labelStyle),
+      const Text('Doctors', style: _labelStyle),
       const SizedBox(height: 4),
       Container(
         decoration: BoxDecoration(
@@ -502,18 +535,19 @@ class _ConsultantDropdown extends StatelessWidget {
         ),
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
-            value: names.contains(provider.selectedConsultant)
-                ? provider.selectedConsultant
-                : 'All',
+            value: provider.selectedDoctorId,
             isExpanded: true,
             style: const TextStyle(fontSize: 13, color: Color(0xFF1A202C)),
             padding: const EdgeInsets.symmetric(horizontal: 12),
             borderRadius: BorderRadius.circular(8),
-            items: names
-                .map((n) => DropdownMenuItem(value: n, child: Text(n)))
-                .toList(),
+            items: [
+              const DropdownMenuItem(value: 'All', child: Text('All Doctors')),
+              ...doctors.map((d) => DropdownMenuItem(
+                  value: d.srlNo.toString(),
+                  child: Text('Dr. ${d.doctorName}')))
+            ],
             onChanged: (v) =>
-                context.read<AppointmentsProvider>().setConsultant(v!),
+                context.read<AppointmentsProvider>().setDoctor(v!),
           ),
         ),
       ),
@@ -625,68 +659,91 @@ class _SearchFieldState extends State<_SearchField> {
 class _ActionButtons extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      // Refresh
-      ElevatedButton.icon(
-        onPressed: () => context.read<AppointmentsProvider>().refresh(),
-        icon: const Icon(Icons.refresh, size: 16),
-        label: const Text('Refresh'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF00B5AD),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8)),
-          textStyle: const TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w600),
+    final provider = context.watch<AppointmentsProvider>();
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        // Refresh
+        ElevatedButton.icon(
+          onPressed: () => context.read<AppointmentsProvider>().refresh(),
+          icon: const Icon(Icons.refresh, size: 16),
+          label: const Text('Refresh'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF00B5AD),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8)),
+            textStyle: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600),
+          ),
         ),
-      ),
-      const SizedBox(width: 8),
-      // Export CSV (placeholder)
-      ElevatedButton.icon(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('CSV export coming soon'),
-            behavior: SnackBarBehavior.floating,
-          ));
-        },
-        icon: const Icon(Icons.upload_file_outlined, size: 16),
-        label: const Text('Export CSV'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF2D3748),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8)),
-          textStyle: const TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w600),
+        // Summarize
+        ElevatedButton.icon(
+          onPressed: () => context.read<AppointmentsProvider>().toggleSummarized(),
+          icon: Icon(
+            provider.isSummarized ? Icons.summarize : Icons.summarize_outlined,
+            size: 16,
+          ),
+          label: Text(provider.isSummarized ? 'Summarized' : 'Summarize'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: provider.isSummarized ? _teal : _teal.withOpacity(0.1),
+            foregroundColor: provider.isSummarized ? Colors.white : _teal,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8)),
+            textStyle: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600),
+          ),
         ),
-      ),
-      const SizedBox(width: 8),
-      // Print (placeholder)
-      ElevatedButton.icon(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Print coming soon'),
-            behavior: SnackBarBehavior.floating,
-          ));
-        },
-        icon: const Icon(Icons.print_outlined, size: 16),
-        label: const Text('Print'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF4A5568),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8)),
-          textStyle: const TextStyle(
-              fontSize: 13, fontWeight: FontWeight.w600),
+        // Export CSV (placeholder)
+        ElevatedButton.icon(
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('CSV export coming soon'),
+              behavior: SnackBarBehavior.floating,
+            ));
+          },
+          icon: const Icon(Icons.upload_file_outlined, size: 16),
+          label: const Text('Export CSV'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF2D3748),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8)),
+            textStyle: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600),
+          ),
         ),
-      ),
-    ]);
+        // Print (placeholder)
+        ElevatedButton.icon(
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Print coming soon'),
+              behavior: SnackBarBehavior.floating,
+            ));
+          },
+          icon: const Icon(Icons.print_outlined, size: 16),
+          label: const Text('Print'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF4A5568),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8)),
+            textStyle: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -797,6 +854,8 @@ class _AppointmentDetailsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = context.watch<AppointmentsProvider>();
     final list = provider.filtered;
+    final summaries = provider.summarizedData;
+    final isSummarized = provider.isSummarized;
 
     return Container(
       decoration: BoxDecoration(
@@ -822,18 +881,22 @@ class _AppointmentDetailsCard extends StatelessWidget {
                   color: const Color(0xFF00B5AD).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.bike_scooter,
-                    color: Color(0xFF00B5AD), size: 18),
+                child: Icon(
+                    isSummarized ? Icons.summarize : Icons.bike_scooter,
+                    color: const Color(0xFF00B5AD),
+                    size: 18),
               ),
               const SizedBox(width: 12),
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Appointment Details',
-                    style: TextStyle(
+                Text(isSummarized ? 'Summarized Report' : 'Appointment Details',
+                    style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF1A202C))),
                 Text(
-                  'Showing ${list.length} of ${provider.total} records',
+                  isSummarized
+                      ? 'Grouped by doctor (${summaries.length} doctors)'
+                      : 'Showing ${list.length} of ${provider.total} records',
                   style: const TextStyle(
                       fontSize: 11, color: Color(0xFF718096)),
                 ),
@@ -853,27 +916,27 @@ class _AppointmentDetailsCard extends StatelessWidget {
                 const Divider(height: 1, color: Color(0xFFF0F0F0)),
 
                 // Rows
-                if (list.isEmpty)
-                  Container(
-                    width: 1000,
-                    padding: const EdgeInsets.all(32),
-                    child: const Center(
-                      child: Text('No appointments found',
-                          style: TextStyle(color: Color(0xFF718096))),
-                    ),
-                  )
+                if (isSummarized)
+                  if (summaries.isEmpty)
+                    _noDataFound()
+                  else
+                    ...summaries.asMap().entries.map((e) => _SummaryRow(
+                        summary: e.value,
+                        index: e.key + 1,
+                        isEven: e.key % 2 == 0))
+                else if (list.isEmpty)
+                  _noDataFound()
                 else
-                  ...list.asMap().entries.map((e) =>
-                      _AppointmentRow(
-                          appt: e.value,
-                          index: e.key + 1,
-                          isEven: e.key % 2 == 0)),
+                  ...list.asMap().entries.map((e) => _AppointmentRow(
+                      appt: e.value,
+                      index: e.key + 1,
+                      isEven: e.key % 2 == 0)),
               ],
             ),
           ),
 
           // ── Footer total ───────────────────────────────────────────
-          if (list.isNotEmpty)
+          if (isSummarized ? summaries.isNotEmpty : list.isNotEmpty)
             Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 20, vertical: 14),
@@ -886,7 +949,9 @@ class _AppointmentDetailsCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Text(
-                    'TOTAL (${list.length} APPOINTMENTS)',
+                    isSummarized
+                        ? 'TOTAL DOCTORS: ${summaries.length}'
+                        : 'TOTAL (${list.length} APPOINTMENTS)',
                     style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -907,15 +972,38 @@ class _AppointmentDetailsCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _noDataFound() => Container(
+        width: 1000,
+        padding: const EdgeInsets.all(32),
+        child: const Center(
+          child: Text('No records found',
+              style: TextStyle(color: Color(0xFF718096))),
+        ),
+      );
 }
 
 // ─── Table Header ─────────────────────────────────────────────────────────────
 class _TableHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<AppointmentsProvider>();
+    final isSummarized = provider.isSummarized;
+
     return Container(
       color: const Color(0xFFF7FAFC),
-      child: Row(children: [
+      child: Row(children: isSummarized
+          ? [
+        _th('SR#', w: 40),
+        _th('DOCTOR', w: 200),
+        _th('TOTAL', w: 80),
+        _th('FIRST', w: 80),
+        _th('FOLLOWUP', w: 90),
+        _th('BOOKED', w: 80),
+        _th('COMPLETED', w: 90),
+        _th('CANCELLED', w: 90),
+      ]
+          : [
         _th('SR#', w: 40),
         _th('DATE', w: 100),
         _th('TOKEN', w: 70),
@@ -923,7 +1011,7 @@ class _TableHeader extends StatelessWidget {
         _th('MR NO', w: 80),
         _th('PATIENT', w: 130),
         _th('CONTACT', w: 110),
-        _th('CONSULTANT', w: 110),
+        _th('DOCTOR', w: 110),
         _th('SPECIALIZATION', w: 110),
         _th('TYPE', w: 90),
         _th('FEE', w: 120),
@@ -1243,6 +1331,49 @@ class _AppointmentRow extends StatelessWidget {
                   color: color ?? const Color(0xFF1A202C))),
         ),
       );
+}
+
+// ─── Summary Row ──────────────────────────────────────────────────────────────
+class _SummaryRow extends StatelessWidget {
+  final AppointmentSummary summary;
+  final int index;
+  final bool isEven;
+
+  const _SummaryRow(
+      {required this.summary, required this.index, required this.isEven});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: isEven ? Colors.white : const Color(0xFFFAFAFA),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _cell(index.toString(), w: 40),
+          _cell(summary.doctorName, w: 200, bold: true),
+          _cell(summary.totalCount.toString(), w: 80),
+          _cell(summary.firstVisits.toString(), w: 80),
+          _cell(summary.followUps.toString(), w: 90),
+          _cell(summary.booked.toString(), w: 80),
+          _cell(summary.completed.toString(), w: 90),
+          _cell(summary.cancelled.toString(), w: 90),
+        ],
+      ),
+    );
+  }
+
+  Widget _cell(String text, {required double w, bool bold = false}) => SizedBox(
+    width: w,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+      child: Text(text,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+              fontSize: 12,
+              fontWeight: bold ? FontWeight.w600 : FontWeight.normal,
+              color: const Color(0xFF1A202C))),
+    ),
+  );
 }
 
 // ─── Shared label style ────────────────────────────────────────────────────────

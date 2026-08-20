@@ -322,6 +322,23 @@ class ReportsApiService {
     }
   }
 
+  Future<List<dynamic>> fetchAccountsExpenses(String startDate, String endDate) async {
+    try {
+      final headers = await _authHeaders();
+      final uri = _buildUri('/expenses', {'startDate': startDate, 'endDate': endDate});
+      final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['data'] is List) return data['data'] as List<dynamic>;
+        if (data is List) return data;
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error fetching accounts expenses: $e');
+      return [];
+    }
+  }
+
   // ─── 8. Emergency Billing Data (GET /emergency-billing/date-range) ─
   Future<List<dynamic>> fetchEmergencyBillsData(String startDate, String endDate) async {
     try {
@@ -350,22 +367,23 @@ class ReportsApiService {
     }
   }
 
-  // ─── 9. Payroll Attendance Data (GET https://api.payroll.afaqhims.com/api/attendance) ──
   Future<List<dynamic>> fetchPayrollAttendanceData({
+    String? dateFrom,
+    String? dateTo,
     String? departmentId,
     String? employeeId,
     String? shiftId,
   }) async {
     try {
-      final params = <String, String>{};
-      if (departmentId != null && departmentId.isNotEmpty) params['department_id'] = departmentId;
-      if (employeeId != null && employeeId.isNotEmpty) params['employee_id'] = employeeId;
-      if (shiftId != null && shiftId.isNotEmpty) params['duty_shift_id'] = shiftId;
-
-      final uri = Uri.parse('https://api.payroll.afaqhims.com/api/attendance').replace(queryParameters: params.isNotEmpty ? params : null);
+      final uri = _buildUri('/attendance/report', {
+        if (dateFrom != null) 'date_from': dateFrom,
+        if (dateTo != null) 'date_to': dateTo,
+        if (departmentId != null) 'department_id': departmentId,
+        if (employeeId != null) 'employee_id': employeeId,
+        if (shiftId != null) 'duty_shift_id': shiftId,
+      });
       debugPrint('Fetching Payroll Attendance: $uri');
-
-      final response = await http.get(uri, headers: {'Content-Type': 'application/json'}).timeout(const Duration(seconds: 20));
+      final response = await http.get(uri, headers: await _authHeaders()).timeout(const Duration(seconds: 20));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -376,11 +394,101 @@ class ReportsApiService {
           return data;
         }
       }
-      debugPrint('Payroll attendance error status: ${response.statusCode} - ${response.body}');
       return [];
     } catch (e) {
       debugPrint('Error fetching Payroll attendance: $e');
       return [];
+    }
+  }
+
+  // ─── 9b. Payroll Summary (Employeewise) ──────────────────────────
+  Future<List<dynamic>> fetchPayrollSummary({required String dateFrom, required String dateTo}) async {
+    try {
+      final uri = _buildUri('/attendance/summary', {
+        'date_from': dateFrom,
+        'date_to': dateTo,
+      });
+      debugPrint('Fetching Payroll Summary: $uri');
+      final response = await http.get(uri, headers: await _authHeaders()).timeout(const Duration(seconds: 20));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['data'] is List) return data['data'] as List<dynamic>;
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // ─── 9c. Payroll Runs ─────────────────────────────────────────────
+  Future<List<dynamic>> fetchPayrollRuns() async {
+    try {
+      final uri = _buildUri('/payroll/runs');
+      final response = await http.get(uri, headers: await _authHeaders());
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && data['data'] is List) return data['data'] as List<dynamic>;
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<Map<String, dynamic>?> createPayrollRun(int year, int month) async {
+    try {
+      final uri = _buildUri('/payroll/runs');
+      final response = await http.post(
+        uri,
+        headers: await _authHeaders(),
+        body: jsonEncode({'period_year': year, 'period_month': month}),
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) return jsonDecode(response.body);
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> fetchPayrollRun(dynamic id) async {
+    try {
+      final uri = _buildUri('/payroll/runs/$id');
+      final response = await http.get(uri, headers: await _authHeaders());
+      if (response.statusCode == 200) return jsonDecode(response.body);
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<bool> finalizePayrollRun(dynamic id) async {
+    try {
+      final uri = _buildUri('/payroll/runs/$id/finalize');
+      final response = await http.post(uri, headers: await _authHeaders());
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> deletePayrollRun(dynamic id) async {
+    try {
+      final uri = _buildUri('/payroll/runs/$id');
+      final response = await http.delete(uri, headers: await _authHeaders());
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> fetchSalarySlip(dynamic runId, dynamic employeeSrlNo) async {
+    try {
+      final uri = _buildUri('/payroll/runs/$runId/slip/$employeeSrlNo');
+      final response = await http.get(uri, headers: await _authHeaders());
+      if (response.statusCode == 200) return jsonDecode(response.body);
+      return null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -428,11 +536,11 @@ class ReportsApiService {
     }
   }
 
-  // ─── 12. Shifts Lookup (GET /shifts) ───────────────────────────────
+  // ─── 12. Duty Shifts Lookup (GET /attendance/duty-shifts) ──────────
   Future<List<dynamic>> fetchShifts() async {
     try {
       final headers = await _authHeaders();
-      final uri = _buildUri('/shifts');
+      final uri = _buildUri('/attendance/duty-shifts');
       final response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
