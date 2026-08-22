@@ -117,10 +117,14 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
+  bool _navigated = false;
+
   void _goTo(Widget screen) {
-    Navigator.pushReplacement(
-      context,
+    if (!mounted || _navigated) return;
+    _navigated = true;
+    Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => screen),
+      (route) => false,
     );
   }
 

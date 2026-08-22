@@ -46,6 +46,8 @@ import '../../screens/reports/opd_report_screen.dart';
 import '../../screens/reports/accounts_report_screen.dart';
 import '../../screens/reports/payroll_report_screen.dart';
 import '../../screens/reports/blank_report_screen.dart';
+import '../../custum widgets/task_management/task_app_bar_button.dart';
+import '../../screens/task_management/task_workspace_screen.dart';
 
 
 // ─── FIX: Convert BaseScaffold from StatelessWidget to StatefulWidget ─────────
@@ -280,7 +282,9 @@ class _BaseScaffoldState extends State<BaseScaffold> {
                   ],
                 ),
               ),
-              if (!isCampMode)
+              if (!isCampMode) ...[
+                const TaskAppBarButton(),
+                const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () => showGlobalSearchOverlay(context),
                   child: Container(
@@ -293,6 +297,7 @@ class _BaseScaffoldState extends State<BaseScaffold> {
                         color: Colors.white, size: 22),
                   ),
                 ),
+              ],
               if (isCampMode) ...[
                 const SizedBox(width: 8),
                 GestureDetector(
@@ -494,6 +499,9 @@ class _BaseScaffoldState extends State<BaseScaffold> {
         break;
       case 41:
         screen = const AccountsReportScreen();
+        break;
+      case 50:
+        screen = const TaskWorkspaceScreen();
         break;
       case 100:
         screen = const SyncDashboardScreen();

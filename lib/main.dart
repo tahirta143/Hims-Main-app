@@ -32,6 +32,9 @@ import 'package:hims_app/providers/reports/yearly_report_provider.dart';
 import 'package:hims_app/providers/reports/opd_report_provider.dart';
 import 'package:hims_app/providers/reports/payroll_report_provider.dart';
 import 'package:hims_app/providers/reports/accounts_report_provider.dart';
+import 'package:hims_app/providers/task_management/task_workspace_provider.dart';
+import 'package:hims_app/providers/task_management/task_list_provider.dart';
+import 'package:hims_app/providers/task_management/task_chat_provider.dart';
 import 'package:hims_app/screens/main_shell.dart';
 import 'package:provider/provider.dart';
 import 'package:animations/animations.dart';
@@ -87,9 +90,12 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ShiftReportProvider()),
         ChangeNotifierProvider(create: (_) => MonthlyReportProvider()),
         ChangeNotifierProvider(create: (_) => YearlyReportProvider()),
-        ChangeNotifierProvider(create: (_) => OpdReportProvider()),
-        ChangeNotifierProvider(create: (_) => PayrollReportProvider()),
         ChangeNotifierProvider(create: (_) => AccountsReportProvider()),
+
+        // ─── Task Management Providers ────────────────────────────────
+        ChangeNotifierProvider(create: (_) => TaskWorkspaceProvider()),
+        ChangeNotifierProvider(create: (_) => TaskListProvider()),
+        ChangeNotifierProvider(create: (_) => TaskChatProvider()),
       ],
       child: MaterialApp(
         title: 'HIMS',

@@ -367,6 +367,13 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       title: 'Dashboard',
                       index: 0,
                     ),
+
+                  // Task Management
+                  _buildDrawerItem(
+                    icon: Icons.assignment_outlined,
+                    title: 'Task Management',
+                    index: 50,
+                  ),
                   // MR Details — standalone
                   if (perm.canAny([Perm.mrRead, Perm.mrCreate]))
                     _buildDrawerItem(
