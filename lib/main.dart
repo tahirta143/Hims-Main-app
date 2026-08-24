@@ -35,6 +35,7 @@ import 'package:hims_app/providers/reports/accounts_report_provider.dart';
 import 'package:hims_app/providers/task_management/task_workspace_provider.dart';
 import 'package:hims_app/providers/task_management/task_list_provider.dart';
 import 'package:hims_app/providers/task_management/task_chat_provider.dart';
+import 'package:hims_app/providers/task_management/task_report_provider.dart';
 import 'package:hims_app/screens/main_shell.dart';
 import 'package:provider/provider.dart';
 import 'package:animations/animations.dart';
@@ -96,6 +97,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => TaskWorkspaceProvider()),
         ChangeNotifierProvider(create: (_) => TaskListProvider()),
         ChangeNotifierProvider(create: (_) => TaskChatProvider()),
+        ChangeNotifierProvider(create: (_) => TaskReportProvider()),
       ],
       child: MaterialApp(
         title: 'HIMS',

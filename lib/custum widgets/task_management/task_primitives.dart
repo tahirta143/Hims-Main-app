@@ -519,27 +519,34 @@ class StatTileWidget extends StatelessWidget {
         children: [
           // Header row — dot + label + icon count badge
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(color: accentColor, shape: BoxShape.circle),
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(color: accentColor, shape: BoxShape.circle),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade600,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              Icon(icon, size: 13, color: accentColor.withOpacity(0.6)),
+              const SizedBox(width: 4),
+              Icon(icon, size: 12, color: accentColor.withOpacity(0.6)),
             ],
           ),
           // Big value

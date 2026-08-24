@@ -67,39 +67,109 @@ class TaskWorkspaceDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     return Drawer(
       backgroundColor: Colors.white,
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // ── Back to HIMS ────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-              child: InkWell(
-                onTap: () => _goBackToHims(context),
-                borderRadius: BorderRadius.circular(10),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.arrow_back_rounded, size: 16, color: _kMuted),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Back to HIMS',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: _kMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Gradient Header ──────────────────────────────────────────────
+          Container(
+            padding: EdgeInsets.only(
+              top: MediaQuery.of(context).padding.top + 20,
+              left: 20,
+              right: 16,
+              bottom: 24,
+            ),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [_kTeal, _kTealDark],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.only(
+                bottomRight: Radius.circular(32),
               ),
             ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.task_alt_rounded, color: Colors.white, size: 26),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Task Management',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                Text(
+                  'Workspace & Administration',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-            const Divider(height: 1, thickness: 1, color: Color(0xFFEDF2F7)),
-            const SizedBox(height: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 12),
+                  // ── Back to HIMS ────────────────────────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    child: InkWell(
+                      onTap: () => _goBackToHims(context),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.arrow_back_rounded, size: 16, color: _kMuted),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Back to HIMS Dashboard',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: _kSlate,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Divider(height: 1, thickness: 1, color: Color(0xFFEDF2F7)),
+                  ),
 
             // ── WORKSPACE section ────────────────────────────────────────────
             Padding(
@@ -165,75 +235,63 @@ class TaskWorkspaceDrawer extends StatelessWidget {
               _WorkspaceNavItem(
                 icon: Icons.assignment_outlined,
                 label: 'All Tasks',
-                active: false,
+                active: activeTabIndex == 10,
                 onTap: () => _pushAdmin(context, const AdminTasksScreen()),
               ),
               _WorkspaceNavItem(
                 icon: Icons.business_rounded,
                 label: 'Projects',
-                active: false,
+                active: activeTabIndex == 11,
                 onTap: () => _pushAdmin(context, const AdminProjectsScreen()),
               ),
               _WorkspaceNavItem(
                 icon: Icons.people_outline_rounded,
                 label: 'People',
-                active: false,
+                active: activeTabIndex == 12,
                 onTap: () => _pushAdmin(context, const AdminPeopleScreen()),
               ),
               _WorkspaceNavItem(
                 icon: Icons.bar_chart_rounded,
                 label: 'Appraisals',
-                active: false,
+                active: activeTabIndex == 13,
                 onTap: () => _pushAdmin(context, const AdminScoresScreen()),
               ),
               _WorkspaceNavItem(
                 icon: Icons.radar_rounded,
                 label: 'Reports',
-                active: false,
+                active: activeTabIndex == 14,
                 onTap: () => _pushAdmin(context, const AdminReportsScreen()),
               ),
               _WorkspaceNavItem(
                 icon: Icons.security_rounded,
                 label: 'Tracking',
-                active: false,
+                active: activeTabIndex == 15,
                 onTap: () => _pushAdmin(context, const AdminTrackingScreen()),
               ),
-            ],
-
-            const Spacer(),
-
-            // ── Footer branding ──────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [_kTeal, _kTealDark],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.task_alt_rounded, color: Colors.white, size: 16),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Task Management',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: _kSlate,
-                    ),
-                  ),
                 ],
-              ),
+              ]),
             ),
-          ],
-        ),
+          ),
+
+          // ── Footer branding ──────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline_rounded, color: Color(0xFF94A3B8), size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  'v1.0.0 Stable',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -258,22 +316,30 @@ class _WorkspaceNavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           decoration: BoxDecoration(
-            color: active ? TaskColors.medicalAccent.withOpacity(0.1) : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            color: active ? _kTeal : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: active ? [
+              BoxShadow(
+                color: _kTeal.withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              )
+            ] : null,
           ),
           child: Row(
             children: [
               Icon(
                 icon,
-                size: 18,
-                color: active ? TaskColors.medicalAccent : _kMuted,
+                size: 20,
+                color: active ? Colors.white : _kMuted,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -281,21 +347,21 @@ class _WorkspaceNavItem extends StatelessWidget {
                   label,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                    color: active ? TaskColors.medicalAccent : _kSlate,
+                    fontWeight: active ? FontWeight.bold : FontWeight.w500,
+                    color: active ? Colors.white : _kSlate,
                   ),
                 ),
               ),
               if (badgeCount > 0)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE11D48),
-                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: active ? Colors.white.withOpacity(0.2) : const Color(0xFFE11D48),
+                    borderRadius: const BorderRadius.all(Radius.circular(10)),
                   ),
                   child: Text(
                     badgeCount > 99 ? '99+' : '$badgeCount',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
                       fontSize: 9,
                       fontWeight: FontWeight.bold,

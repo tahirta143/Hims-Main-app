@@ -3,6 +3,13 @@ import '../../../custum widgets/task_management/task_primitives.dart';
 import '../../../models/task_management/task_report_model.dart';
 import '../../../core/services/task_management/task_api_service.dart';
 
+import 'package:hims_app/custum%20widgets/task_management/task_app_bar.dart';
+import 'package:hims_app/custum%20widgets/task_management/task_bottom_bar.dart';
+import 'package:hims_app/custum%20widgets/task_management/task_workspace_drawer.dart';
+import '../../../providers/task_management/task_workspace_provider.dart';
+import 'package:provider/provider.dart';
+import '../task_workspace_screen.dart';
+
 class AdminScoresScreen extends StatefulWidget {
   const AdminScoresScreen({super.key});
 
@@ -11,6 +18,7 @@ class AdminScoresScreen extends StatefulWidget {
 }
 
 class _AdminScoresScreenState extends State<AdminScoresScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TaskApiService _api = TaskApiService();
   final TextEditingController _searchController = TextEditingController();
 
@@ -32,6 +40,13 @@ class _AdminScoresScreenState extends State<AdminScoresScreen> {
     setState(() => _loading = false);
   }
 
+  void _onBottomNavItemBar(int index) {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => TaskWorkspaceScreen(initialTabIndex: index)),
+      (route) => false,
+    );
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -40,6 +55,7 @@ class _AdminScoresScreenState extends State<AdminScoresScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final workspace = context.watch<TaskWorkspaceProvider>();
     final query = _searchController.text.trim().toLowerCase();
     final filtered = _reports.where((r) {
       if (query.isEmpty) return true;
@@ -49,20 +65,18 @@ class _AdminScoresScreenState extends State<AdminScoresScreen> {
     }).toList();
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0.5,
-        title: const Text('Performance Appraisals', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: TaskColors.slateText)),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: TaskColors.slateText),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
+      appBar: TaskAppBar(
+        title: 'Appraisals',
+        subtitle: 'ADMINISTRATION',
+        scaffoldKey: _scaffoldKey,
+      ),
+      drawer: TaskWorkspaceDrawer(
+        activeTabIndex: 13,
+        unreadCount: workspace.unreadCount,
+        isAdmin: true,
+        onTabSelected: _onBottomNavItemBar,
       ),
       body: Column(
         children: [
@@ -168,6 +182,11 @@ class _AdminScoresScreenState extends State<AdminScoresScreen> {
                       ),
           ),
         ],
+      ),
+      bottomNavigationBar: TaskFluidBottomNavBar(
+        currentIndex: -1,
+        unreadCount: workspace.unreadCount,
+        onItemSelected: _onBottomNavItemBar,
       ),
     );
   }

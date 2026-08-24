@@ -9,6 +9,12 @@ import '../../../providers/task_management/task_list_provider.dart';
 import '../dialogs/task_detail_sheet.dart';
 import '../dialogs/task_form_dialog.dart';
 
+import 'package:hims_app/custum%20widgets/task_management/task_app_bar.dart';
+import 'package:hims_app/custum%20widgets/task_management/task_bottom_bar.dart';
+import 'package:hims_app/custum%20widgets/task_management/task_workspace_drawer.dart';
+import '../../../providers/task_management/task_workspace_provider.dart';
+import '../task_workspace_screen.dart';
+
 class AdminTasksScreen extends StatefulWidget {
   const AdminTasksScreen({super.key});
 
@@ -17,6 +23,7 @@ class AdminTasksScreen extends StatefulWidget {
 }
 
 class _AdminTasksScreenState extends State<AdminTasksScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TaskApiService _api = TaskApiService();
   final TextEditingController _searchController = TextEditingController();
 
@@ -56,6 +63,13 @@ class _AdminTasksScreenState extends State<AdminTasksScreen> {
     }
   }
 
+  void _onBottomNavItemBar(int index) {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => TaskWorkspaceScreen(initialTabIndex: index)),
+      (route) => false,
+    );
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -64,6 +78,7 @@ class _AdminTasksScreenState extends State<AdminTasksScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final workspace = context.watch<TaskWorkspaceProvider>();
     final query = _searchController.text.trim().toLowerCase();
     final filtered = _tasks.where((t) {
       if (query.isEmpty) return true;
@@ -75,23 +90,31 @@ class _AdminTasksScreenState extends State<AdminTasksScreen> {
     }).toList();
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: _TealAppBar(
+      appBar: TaskAppBar(
         title: 'All Tasks',
-        onBack: () => Navigator.pop(context),
+        subtitle: 'ADMINISTRATION',
+        scaffoldKey: _scaffoldKey,
         action: IconButton(
           onPressed: () {
             TaskFormDialog.show(
-                context,
-                onSaved: (newTask) {
-                  setState(() => _tasks.insert(0, newTask));
-                  context.read<TaskListProvider>().upsertTask(newTask);
-                },
-              );
-            },
-            icon: const Icon(Icons.add_rounded, color: Colors.white),
-          ),
+              context,
+              onSaved: (newTask) {
+                setState(() => _tasks.insert(0, newTask));
+                context.read<TaskListProvider>().upsertTask(newTask);
+              },
+            );
+          },
+          icon: const Icon(Icons.add_rounded, color: Colors.white),
         ),
+      ),
+      drawer: TaskWorkspaceDrawer(
+        activeTabIndex: 10,
+        unreadCount: workspace.unreadCount,
+        isAdmin: true,
+        onTabSelected: _onBottomNavItemBar,
+      ),
       body: Column(
         children: [
           // Filter Bar
@@ -257,61 +280,10 @@ class _AdminTasksScreenState extends State<AdminTasksScreen> {
           ),
         ],
       ),
-    );
-  }
-}
-
-// ── Teal gradient AppBar ─────────────────────────────────────────────────────
-class _TealAppBar extends StatelessWidget implements PreferredSizeWidget {
-  final String title;
-  final VoidCallback onBack;
-  final Widget? action;
-
-  const _TealAppBar({
-    required this.title,
-    required this.onBack,
-    this.action,
-  });
-
-  @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF00B5AD), Color(0xFF0D9488)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-          onPressed: onBack,
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
-            const Text('ADMINISTRATION',
-                style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10,
-                    letterSpacing: 0.6)),
-          ],
-        ),
-        actions: [
-          if (action != null) action!,
-          const SizedBox(width: 4),
-        ],
+      bottomNavigationBar: TaskFluidBottomNavBar(
+        currentIndex: -1,
+        unreadCount: workspace.unreadCount,
+        onItemSelected: _onBottomNavItemBar,
       ),
     );
   }

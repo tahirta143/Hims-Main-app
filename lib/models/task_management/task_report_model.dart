@@ -208,35 +208,32 @@ class UserPerformanceReport {
 class DepartmentSummaryReport {
   final int departmentId;
   final String departmentName;
-  final int totalTasks;
-  final int completedTasks;
+  final int staff;
+  final int tasks;
+  final int completed;
   final int overdueTasks;
   final double completionRate;
 
   DepartmentSummaryReport({
     required this.departmentId,
     required this.departmentName,
-    this.totalTasks = 0,
-    this.completedTasks = 0,
+    this.staff = 0,
+    this.tasks = 0,
+    this.completed = 0,
     this.overdueTasks = 0,
     this.completionRate = 0.0,
   });
 
   factory DepartmentSummaryReport.fromJson(Map<String, dynamic> json) {
+    int _i(dynamic v) => v is int ? v : int.tryParse(v?.toString() ?? '0') ?? 0;
+    
     return DepartmentSummaryReport(
-      departmentId: json['departmentId'] is int
-          ? json['departmentId']
-          : int.tryParse(json['departmentId']?.toString() ?? '0') ?? 0,
+      departmentId: _i(json['departmentId']),
       departmentName: json['departmentName']?.toString() ?? 'Unknown',
-      totalTasks: json['totalTasks'] is int
-          ? json['totalTasks']
-          : int.tryParse(json['totalTasks']?.toString() ?? '0') ?? 0,
-      completedTasks: json['completedTasks'] is int
-          ? json['completedTasks']
-          : int.tryParse(json['completedTasks']?.toString() ?? '0') ?? 0,
-      overdueTasks: json['overdueTasks'] is int
-          ? json['overdueTasks']
-          : int.tryParse(json['overdueTasks']?.toString() ?? '0') ?? 0,
+      staff: _i(json['staff']),
+      tasks: _i(json['tasks'] ?? json['totalTasks']),
+      completed: _i(json['completed'] ?? json['completedTasks']),
+      overdueTasks: _i(json['overdueTasks']),
       completionRate: json['completionRate'] is num
           ? (json['completionRate'] as num).toDouble()
           : double.tryParse(json['completionRate']?.toString() ?? '0') ?? 0.0,

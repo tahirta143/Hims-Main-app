@@ -1,14 +1,16 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../../custum widgets/task_management/task_primitives.dart';
 import '../../../models/task_management/project_model.dart';
 import '../../../models/task_management/task_model.dart';
 import '../../../core/services/task_management/task_api_service.dart';
+import 'package:hims_app/custum%20widgets/task_management/task_app_bar.dart';
+import 'package:hims_app/custum%20widgets/task_management/task_bottom_bar.dart';
+import 'package:hims_app/custum%20widgets/task_management/task_workspace_drawer.dart';
+import '../../../providers/task_management/task_workspace_provider.dart';
+import '../task_workspace_screen.dart';
 
-const Color _kTeal     = Color(0xFF00B5AD);
-const Color _kTealDark = Color(0xFF0D9488);
-const Color _kSlate    = Color(0xFF334155);
-const Color _kMuted    = Color(0xFF64748B);
 const Color _kBg       = Color(0xFFF8FAFC);
 const Color _kBorder   = Color(0xFFEDF2F7);
 
@@ -20,6 +22,7 @@ class AdminProjectsScreen extends StatefulWidget {
 }
 
 class _AdminProjectsScreenState extends State<AdminProjectsScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final TaskApiService _api = TaskApiService();
   final TextEditingController _searchController = TextEditingController();
 
@@ -27,7 +30,6 @@ class _AdminProjectsScreenState extends State<AdminProjectsScreen> {
   List<TaskDepartment> _departments = [];
   List<TaskAssignee> _allPeople = [];
   bool _loading = false;
-  String? _error;
 
   @override
   void initState() {
@@ -38,7 +40,6 @@ class _AdminProjectsScreenState extends State<AdminProjectsScreen> {
   Future<void> _loadData() async {
     setState(() {
       _loading = true;
-      _error = null;
     });
     await Future.wait([
       _api.fetchProjects(includeClosed: true).then((r) {
@@ -54,7 +55,6 @@ class _AdminProjectsScreenState extends State<AdminProjectsScreen> {
       }),
     ]);
     if (_allPeople.isEmpty) {
-      // retry people once — sometimes it needs a second call
       final retry = await _api.fetchPeople();
       if (retry.success && retry.data != null) {
         _allPeople = retry.data!;
@@ -63,56 +63,19 @@ class _AdminProjectsScreenState extends State<AdminProjectsScreen> {
     setState(() => _loading = false);
   }
 
+  void _onBottomNavItemBar(int index) {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => TaskWorkspaceScreen(initialTabIndex: index)),
+      (route) => false,
+    );
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
 
-  // ── Teal gradient AppBar ──────────────────────────────────────────────────
-  Widget _buildAppBar(BuildContext context) {
-    final topPad = MediaQuery.of(context).padding.top;
-    return Container(
-      padding: EdgeInsets.only(top: topPad + 10, left: 4, right: 8, bottom: 14),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [_kTeal, _kTealDark],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
-          ),
-          const SizedBox(width: 4),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Projects',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-                Text('ADMINISTRATION',
-                    style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10,
-                        letterSpacing: 0.6)),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: () => _showProjectForm(),
-            icon: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
-          ),
-        ],
-      ),
-    );
-  }
 
   // ── Project create/edit dialog ────────────────────────────────────────────
   void _showProjectForm({ProjectItem? project}) {
@@ -479,9 +442,9 @@ class _AdminProjectsScreenState extends State<AdminProjectsScreen> {
     );
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final workspace = context.watch<TaskWorkspaceProvider>();
     final query = _searchController.text.trim().toLowerCase();
     final filtered = _projects.where((p) {
       if (query.isEmpty) return true;
@@ -490,11 +453,25 @@ class _AdminProjectsScreenState extends State<AdminProjectsScreen> {
     }).toList();
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: _kBg,
+      appBar: TaskAppBar(
+        title: 'Projects',
+        subtitle: 'ADMINISTRATION',
+        scaffoldKey: _scaffoldKey,
+        action: IconButton(
+          onPressed: () => _showProjectForm(),
+          icon: const Icon(Icons.add_rounded, color: Colors.white, size: 24),
+        ),
+      ),
+      drawer: TaskWorkspaceDrawer(
+        activeTabIndex: 11,
+        unreadCount: workspace.unreadCount,
+        isAdmin: true,
+        onTabSelected: _onBottomNavItemBar,
+      ),
       body: Column(
         children: [
-          _buildAppBar(context),
-
           // Search bar
           Padding(
             padding: const EdgeInsets.all(12),
@@ -557,6 +534,11 @@ class _AdminProjectsScreenState extends State<AdminProjectsScreen> {
                       ),
           ),
         ],
+      ),
+      bottomNavigationBar: TaskFluidBottomNavBar(
+        currentIndex: -1,
+        unreadCount: workspace.unreadCount,
+        onItemSelected: _onBottomNavItemBar,
       ),
     );
   }

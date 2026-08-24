@@ -608,7 +608,9 @@ class TaskApiService {
       final res = await http.get(Uri.parse('$_baseUrl/reports/overview'), headers: await _headers());
       final json = jsonDecode(res.body);
       if (res.statusCode == 200) {
-        return TaskApiResponse(success: true, data: OverviewReport.fromJson(json as Map<String, dynamic>));
+        // Targeted 'data' key based on React unwrapData helper
+        final data = json['data'] ?? json;
+        return TaskApiResponse(success: true, data: OverviewReport.fromJson(data as Map<String, dynamic>));
       }
       return TaskApiResponse(success: false, message: json['message']?.toString() ?? 'Failed to load overview');
     } catch (e) {
